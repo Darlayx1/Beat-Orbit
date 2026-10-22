@@ -20,7 +20,7 @@ env:
 jobs:
   verify:
     name: Verify playable production build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -36,8 +36,8 @@ jobs:
         run: npm test
       - name: Build for GitHub Pages
         run: npm run build
-      - name: Install Chromium for browser verification
-        run: npx playwright install --with-deps chromium
+      - name: Confirm preinstalled Chrome runtime
+        run: google-chrome --version
       - name: Desktop and mobile landscape browser tests
         run: npm run test:e2e
       - name: Keep browser verification evidence
@@ -60,7 +60,7 @@ jobs:
     name: Publish GitHub Pages
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       pages: write

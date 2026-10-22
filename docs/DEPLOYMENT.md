@@ -12,7 +12,7 @@ Pull request menjalankan pemeriksaan yang sama tanpa melakukan deployment.
 1. npm ci menggunakan dependency yang dikunci dalam package-lock.json.
 2. Unit, integration, dan DOM tests wajib lulus.
 3. Build menggunakan VITE_BASE_PATH=/Beat-Orbit/ agar JavaScript, CSS, font, dan favicon dapat dimuat dari subdirektori Pages.
-4. Chromium menjalankan skenario browser desktop dan mobile landscape pada build produksi.
+4. Google Chrome menjalankan skenario browser desktop dan mobile landscape pada build produksi.
 5. Laporan, screenshot, dan trace kegagalan disimpan sebagai artifact browser-verification selama tujuh hari.
 6. Hanya build yang lulus pemeriksaan yang dikirim ke GitHub Pages.
 
@@ -26,7 +26,7 @@ Workflow tidak menyimpan personal access token. Deployment memakai GITHUB_TOKEN 
     npm run test:e2e
 
 Pada mesin lokal, browser suite menggunakan Google Chrome yang terpasang, membangun aplikasi, lalu menjalankan preview produksi.
-Di GitHub Actions, suite menggunakan Chromium yang diinstal oleh workflow dan build yang telah diverifikasi.
+Di GitHub Actions, suite memakai Chrome yang sudah tersedia pada runner Ubuntu 24.04 dan build yang telah diverifikasi. Tidak diperlukan pengunduhan browser tambahan.
 
 Untuk memeriksa situs yang sudah dideploy menggunakan suite yang sama, atur PLAYWRIGHT_BASE_URL ke alamat aplikasi lengkap, termasuk trailing slash.
 Pengujian membuat library terisolasi pada profil browser sementara; tidak menggunakan library pengguna.
