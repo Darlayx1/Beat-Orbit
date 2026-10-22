@@ -17,6 +17,7 @@ test.afterEach(async ({ page }) => {
 test('import → unsaved playtest → save → Standard Play → reopen',async({page},testInfo)=>{
   await page.goto('./');
   await expect(page.locator('.track-row')).toHaveCount(3);
+  await page.screenshot({path:testInfo.outputPath('library.png'),fullPage:true});
   await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
   await expect(page.locator('#import-title')).toBeVisible();
   await page.locator('#import-title').fill('Browser test track');
