@@ -2,6 +2,10 @@
 
 Rhythm game berbasis browser dengan **Music Library**, impor audio lokal, **Orbit Studio**, dan gameplay yang menggunakan satu engine.
 
+**[Mainkan BeatOrbit](https://darlayx1.github.io/Beat-Orbit/)** · [Status deployment](https://github.com/Darlayx1/Beat-Orbit/actions/workflows/deploy.yml)
+
+Aplikasi dipublikasikan melalui GitHub Pages. Perubahan pada main melewati pengujian sebelum deployment otomatis.
+
 ## Menjalankan aplikasi
 
 Memerlukan Node.js 22.12 atau lebih baru. Implementasi ini dibangun menggunakan Node.js 24.
@@ -105,11 +109,14 @@ Suite browser disiapkan di tests/browser:
 
     npm run test:e2e
 
-Konfigurasi menggunakan Google Chrome yang terpasang dan server uji terpisah pada port 4173. Suite mencakup desktop serta viewport mobile landscape.
-Suite ini belum dijalankan pada sesi implementasi: akses tab pratinjau ditolak oleh kebijakan keamanan browser. Tidak dilakukan bypass.
-Safari iPhone, Android fisik, multitouch fisik, kualitas suara, visual akhir, dan profiling frame time belum diverifikasi.
+Konfigurasi menggunakan Google Chrome yang terpasang dan preview build produksi pada port 4173. Suite mencakup desktop serta viewport mobile landscape.
+Enam skenario browser berhasil dijalankan di GitHub Actions: alur impor sampai permainan dan pengeditan ulang, recovery draft setelah refresh, serta ekspor/impor JSON pada kedua viewport.
+63 pengujian unit/integrasi/DOM juga lulus. Dependency pengujian telah diperbarui ke Vitest 5; audit npm terakhir tidak melaporkan kerentanan.
+Safari iPhone, Android fisik, multitouch fisik, kualitas suara pada perangkat, dan profiling frame time belum diverifikasi. Emulasi viewport bukan bukti perangkat fisik.
 
 Lihat docs/STATUS.md untuk hasil aktual dan docs/MANUAL_QA.md untuk pemeriksaan perangkat.
+
+Konfigurasi dan petunjuk deployment berada di docs/DEPLOYMENT.md. Musik dan chart localhost tidak berpindah otomatis ke domain GitHub Pages.
 
 ## Pekerjaan berikutnya
 

@@ -1,6 +1,6 @@
 # Pemeriksaan browser dan perangkat
 
-Seluruh item perangkat berikut berstatus NOT VERIFIED sampai diuji pada lingkungan yang disebutkan. Viewport emulasi tidak membuktikan Safari iOS atau multitouch fisik.
+Pengujian Chrome desktop dan viewport mobile landscape telah lulus di GitHub Actions. Daftar di bawah tetap menjadi pemeriksaan manual untuk perangkat dan browser yang disebutkan; viewport emulasi tidak membuktikan Safari iOS atau multitouch fisik.
 
 ## Catatan lingkungan
 
@@ -50,7 +50,8 @@ Catat tanggal, browser/versi, OS, model perangkat, output audio (speaker/kabel/B
 
 | Lingkungan | Status |
 | --- | --- |
-| Chromium desktop, UI dan codec nyata | NOT VERIFIED |
+| Chrome desktop pada GitHub Actions, alur inti dengan WAV | PASS — otomatis; pemeriksaan perangkat manual tetap diperlukan |
+| Chrome viewport mobile landscape 844 × 390 | PASS — otomatis; bukan perangkat fisik |
 | Firefox desktop | NOT VERIFIED |
 | Safari macOS | NOT VERIFIED |
 | Safari iPhone fisik | NOT VERIFIED |

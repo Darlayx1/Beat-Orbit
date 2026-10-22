@@ -1,68 +1,76 @@
-# Checkpoint implementasi BeatOrbit
+# Checkpoint deployment BeatOrbit
 
 Tanggal: 22 Oktober 2026 (Asia/Makassar).
 
-## Status
+## Aplikasi
 
-Implementasi inti tersedia di workspace. Build produksi dan pengujian otomatis lokal lulus.
-Status release perangkat: BELUM TERVERIFIKASI. Tidak ada klaim bahwa seluruh Definition of Done lintas browser telah tercapai.
+**Alamat bermain:** https://darlayx1.github.io/Beat-Orbit/
 
-Workspace awal kosong, tanpa implementasi atau master plan lama yang dapat diperiksa. Aplikasi dibuat baru menggunakan TypeScript/Vite, Canvas, Web Audio, dan IndexedDB.
+**Repositori:** https://github.com/Darlayx1/Beat-Orbit
 
-## Hasil verifikasi aktual
+GitHub Pages aktif dengan source GitHub Actions. Workflow hanya mempublikasikan build setelah pemeriksaan berhasil.
+Workspace lokal telah dihubungkan ke branch main dan origin repositori tersebut.
+
+## Hasil aktual
 
 | Pemeriksaan | Hasil |
 | --- | --- |
-| npm test | PASS — 63 pengujian, 7 file |
-| npm run build | PASS — TypeScript dan build Vite |
-| npm run test:e2e -- --list | PASS — 6 skenario terdaftar; bukan eksekusi browser |
-| Respons server lokal | PASS — HTTP 200 pada localhost setelah izin jaringan diberikan |
-| Browser visual / browser E2E | NOT VERIFIED |
-| Safari iPhone / Android fisik | NOT VERIFIED |
-| Multitouch dan latensi fisik | NOT VERIFIED |
-| Profiling FPS / peak memory perangkat | NOT VERIFIED |
-| Aturan anti-loop | Tersimpan, frontmatter always_on, dirujuk AGENTS.md |
+| Unit, integration, DOM | PASS — 63 pengujian, 7 file |
+| TypeScript dan build produksi | PASS |
+| Browser desktop Chrome pada GitHub Actions | PASS — 3 skenario |
+| Browser mobile landscape Chrome, 844 × 390 | PASS — 3 skenario |
+| Deployment GitHub Pages | PASS |
+| Alamat HTTPS aplikasi | PASS — HTTP 200 |
+| JavaScript, CSS, favicon produksi | PASS — seluruhnya HTTP 200 |
+| Font lokal produksi | PASS — 12 berkas tersedia |
+| npm audit setelah pembaruan Vitest 5 | PASS — 0 temuan |
+| Safari iPhone dan Android fisik | NOT VERIFIED |
+| Multitouch fisik, latensi, kualitas suara perangkat | NOT VERIFIED |
+| Profiling FPS dan peak memory perangkat | NOT VERIFIED |
 
-## Cakupan pengujian yang lulus
+Bukti deployment dan browser pertama yang berhasil:
+https://github.com/Darlayx1/Beat-Orbit/actions/runs/39782634153
 
-- Schema, JSON round-trip, ID, angka invalid, Hold, dan side restriction.
-- BPM/offset/snapping serta pelestarian timestamp.
-- Dua ibu jari, Hold aktif, pola simultan, dan warning tanpa mutasi data.
-- Judgement boundaries, score/combo, release/cancel, satu input satu note.
-- Hasil engine identik untuk snapshot Standard/Playtest.
-- Audio clock, pemetaan timestamp event, seek/restart, source cleanup, stale callback.
-- Transaksi audio/metadata, reopen repository, rollback quota, dan revision conflict.
-- Draft chart baru, draft terpisah dari saved chart, dan penghapusan relasi.
-- Interaksi DOM: placement, move, resize, gesture cancel, typing shortcuts, undo/redo.
-- Autosave debounce, failed-save recovery, concurrent save, dan edit selama transaksi berlangsung.
-- Alur DOM: file invalid → impor WAV fixture → editor → save → gameplay → results → reopen → draft.
-- Chart berdurasi lima menit dengan 2.000 note melewati validasi, editing, dan judgement.
+Versi terkini dan laporan setiap pemeriksaan tersedia pada:
+https://github.com/Darlayx1/Beat-Orbit/actions/workflows/deploy.yml
 
-Audio API, canvas, dan clock pada pengujian DOM menggunakan mock. IndexedDB integration menggunakan fake-indexeddb. Hasil tersebut bukan bukti decode codec, kualitas suara, performa render, atau latensi perangkat nyata.
+## Yang dibuktikan browser
 
-## Kendala verifikasi browser
+Kedua viewport menjalankan build produksi di subdirektori /Beat-Orbit/.
 
-Tab pratinjau pertama tidak dapat terhubung ketika server berada di sandbox.
-Server kemudian dijalankan melalui akses jaringan yang diizinkan dan memberikan HTTP 200.
-Pembacaan tab melalui Browser Use tetap ditolak oleh kebijakan keamanan browser; tindakan tersebut tidak diteruskan melalui browser lain atau jalur kontrol alternatif.
-Suite Playwright disiapkan dan diverifikasi daftar/konfigurasinya, tetapi tidak dijalankan dalam sesi ini.
+1. Impor fixture audio WAV melalui input berkas.
+2. Isi metadata dan buka Orbit Studio.
+3. Buat note dan nama chart.
+4. Playtest perubahan yang belum disimpan sampai results.
+5. Kembali, simpan, dan pilih chart di library.
+6. Standard Play sampai results.
+7. Refresh dan buka kembali chart.
+8. Recovery draft setelah refresh.
+9. Ekspor dan impor JSON dengan pemilihan audio.
+10. Tidak ada page exception atau respons aset aplikasi 4xx/5xx.
 
-## Prioritas berikutnya
+Browser suite memverifikasi lifecycle audio dan permainan, tetapi tidak mengukur suara yang benar-benar didengar atau latensi sentuhan perangkat fisik. Pengujian unit terpisah mencakup judgement boundaries, ownership Dual/Hold, scoring, snapshot isolation, rollback quota, konflik revision, serta chart 2.000 note.
 
-1. Jalankan skenario browser yang tersedia di lingkungan yang mengizinkan akses.
-2. Verifikasi tampilan dan interaksi pada iPhone landscape serta Android fisik.
-3. Uji MP3/WAV/M4A/AAC/OGG nyata pada browser target.
-4. Profiling frame time, decoded memory, dan cleanup siklus playback.
-5. Perbaiki kegagalan P0 yang ditemukan sebelum mengembangkan P2.
+## Perubahan untuk deployment
 
-## Fitur lanjutan yang belum tersedia
+- Vite base dapat diatur melalui VITE_BASE_PATH; GitHub Actions menggunakan /Beat-Orbit/.
+- Favicon dan seluruh aset dibangun dengan prefix yang sesuai.
+- Workflow menjalankan audit dependency, 63 tes, build, lalu browser suite sebelum deploy.
+- Runner dipatok ke Ubuntu 24.04 dan memakai Chrome yang sudah tersedia.
+- Playwright reports, screenshot, dan trace disimpan sebagai artifact selama tujuh hari.
+- Dependency pengujian diperbarui dari Vitest 3 ke Vitest 5 untuk menyelesaikan temuan audit.
+- Izin deployment dibatasi pada job Pages; tidak ada personal access token dalam source atau workflow.
 
-Metronome, kalibrasi perangkat, pinch zoom, multi-select, cover upload, persistent waveform cache, PWA offline shell, automatic beat detection, variable BPM, Slide/Flick, ZIP pack, dan controller eksternal.
+## Catatan verifikasi
 
-## Catatan operasional
+Pembacaan tab pratinjau desktop sebelumnya ditolak kebijakan browser dan tidak dibypass.
+Pengujian browser pada tahap deployment dilakukan oleh GitHub Actions dalam profil test terisolasi.
+Satu selector pengujian yang ambigu antara logo dan tombol library telah diperbaiki berdasarkan log kegagalan; assertions tetap memeriksa seluruh alur.
 
-- Tidak ada audio/chart pengguna yang diunggah.
-- Font dan demo audio tersedia secara lokal; lisensi font disertakan di public/licenses.
-- Tidak ada repositori Git awal, sehingga tidak ada diff baseline atau commit yang diklaim.
-- Build statis berada di dist.
-- Jalankan npm run dev untuk pratinjau; npm run preview untuk meninjau build produksi.
+## Batas rilis
+
+Aplikasi tersedia untuk dimainkan dan alur inti telah diuji di Chrome. Dukungan seluruh browser dan perangkat dalam master plan masih memerlukan pemeriksaan tambahan.
+
+Metronome, kalibrasi perangkat, pinch zoom, multi-select, cover upload, persistent waveform cache, PWA offline shell, automatic beat detection, variable BPM, Slide/Flick, ZIP pack, dan controller eksternal belum tersedia.
+
+Musik dan chart pengguna tetap lokal di IndexedDB. Library localhost dan GitHub Pages terpisah; ekspor chart JSON dan impor audio asli untuk memindahkan pekerjaan.
