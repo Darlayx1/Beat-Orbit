@@ -36,7 +36,7 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
   await expect(page.locator('#note-count')).toHaveText('1 notes');
   await page.locator('[data-editor="save"]').click();
   await expect(page.locator('#save-status')).toHaveText('All changes saved');
-  await page.locator('.sidebar [data-action="library"]').click();
+  await page.locator('.sidebar button[data-action="library"]').click();
   const row=page.locator('.track-row').filter({hasText:'Browser test track'});
   await expect(row.locator('[data-action="play-song"]')).toBeEnabled();
   await row.locator('[data-action="play-song"]').click();
