@@ -26,6 +26,8 @@ Profil persisten yang ditempatkan di bawah output tes masih gagal; profil diagno
 
 ## Kecocokan deployment dan batas rilis
 
+Percobaan deployment pertama commit `1a32f67` pada [run 39791423480](https://github.com/Darlayx1/Beat-Orbit/actions/runs/39791423480) meluluskan audit, 93 tes, dan build, tetapi timeout saat instalasi dependency WebKit. Log memperlihatkan retry mirror `http://azure.archive.ubuntu.com/ubuntu` hingga job dibatalkan; tes browser dan publish belum berjalan. Perbaikan workflow mengganti daftar mirror runner ke HTTPS resmi Ubuntu, membatasi timeout jaringan apt dan durasi instalasi WebKit, tanpa melewati pemeriksaan browser.
+
 Pada pemeriksaan ini halaman produksi dan aset JS/CSS merespons HTTP 200. Build terisolasi snapshot baseline dengan prefix `/Beat-Orbit/` menghasilkan nama aset yang sama dan hash SHA-256 identik dengan deployment:
 
 | Aset baseline/deployment | SHA-256 |

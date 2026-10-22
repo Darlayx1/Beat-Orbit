@@ -40,7 +40,16 @@ jobs:
         run: npm run build
       - name: Confirm preinstalled Chrome runtime
         run: google-chrome --version
+      - name: Configure bounded Ubuntu package downloads
+        timeout-minutes: 1
+        run: |
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt
+          printf '%s\n' 'https://security.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors-security.txt
+          printf '%s\n' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' 'Acquire::Retries "1";' | sudo tee /etc/apt/apt.conf.d/99-beatorbit-network
       - name: Install WebKit for Safari engine checks
+        timeout-minutes: 5
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
         run: npx playwright install --with-deps webkit
       - name: Chrome and WebKit browser tests
         run: npm run test:e2e
