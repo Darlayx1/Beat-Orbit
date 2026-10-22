@@ -1,4 +1,43 @@
-# Checkpoint deployment BeatOrbit
+# Checkpoint lokal: loading, target bebas, dan kontrol vertikal
+
+Tanggal: 22 Oktober 2026 (Asia/Makassar). Baseline: `4aec42123c277782089e53370918e59aa3fab5aa`.
+
+Checkpoint ini mencatat hasil lokal sebelum deployment. Pengguna kemudian mengizinkan commit, push, dan deployment GitHub Pages; hasil rilis tersedia pada [workflow deployment](https://github.com/Darlayx1/Beat-Orbit/actions/workflows/deploy.yml). Safari iPhone 17 / iOS 27 pengguna belum diperiksa; perbaikan akar masalah perangkat tersebut belum dapat diklaim selesai.
+
+## Implementasi dan bukti lokal
+
+- Boot memiliki tenggat total 14 detik, timeout IndexedDB 8 detik, diagnosis durasi tiap tahap, pembatalan generasi PCM, penutupan koneksi terlambat, abort transaksi, serta Retry tanpa reset data. Seed atomik tidak menimpa record yang sudah ada.
+- Chart versi 2 mempertahankan target ternormalisasi, arah masuk, dan travel time. Parser membaca versi 1 dengan layout deterministik; chart/draft lama tidak ditulis ulang otomatis. Impor/ekspor, save/reload, history, clone, dan draft memakai field baru.
+- Note bergerak dari tepi menuju target diam berdasarkan waktu audio. Demo baru memperagakan lima posisi, delapan arah, Hold, dan matching Dual.
+- Kontrol kiri dan kanan mengikuti referensi pengguna: empat tombol lingkaran vertikal, urutan △ ○ □ ×, mengapit panggung. Dual memakai path solid; matching Dual berbagi satu simbol dan counter input parsial. Judgement dan skor tetap memakai Gameplay yang sama untuk Standard Play dan Studio Playtest.
+- Studio memiliki preview panggung untuk drag target, scrub waktu, dan inspector posisi/arah/travel time. Pause/Resume membekukan audio dan memungkinkan Hold diikat kembali ke press baru pada simbol/sisi yang sama.
+- `npm test`: PASS, 93 tes pada 9 file. Mencakup migrasi, round-trip posisi, delapan arah pada tiga viewport, skipped-frame geometry, judgement boundaries, Dual, Hold/resume, timeout, late completion, preservasi seed, dan alur DOM.
+- `npm run build`: PASS (TypeScript dan Vite).
+- Suite browser pada `/`: 26 PASS, 6 SKIPPED. Chrome desktop/mobile memakai Web Audio asli dengan gesture normal. WebKit portrait/landscape lulus boot pertama, refresh, storage unavailable/blocked/stalled, dan ekspor/impor. Enam alur audio WebKit Windows dilewati karena runtime tidak menyediakan `AudioContext` maupun `webkitAudioContext`; tidak ada mock audio atau bypass autoplay.
+- Smoke test build produksi pada prefix `/Beat-Orbit/`: 6 PASS, 2 SKIPPED (kontrol dan boot/refresh pada empat proyek; alasan skip audio WebKit sama). Aset aplikasi tidak menghasilkan respons 4xx/5xx.
+- Tes controller memeriksa urutan vertikal, tombol bundar, area panggung di antara kontrol, pause/resume, orientasi, dan mengambil sampel 60 frame. Sampel desktop ini tidak membuktikan sasaran 60 FPS pada iPhone.
+- Aturan `.agents/rules/anti-loop.md` sudah tersedia: frontmatter YAML valid, `trigger: always_on`, kelompok A–F, circuit breaker, dan referensi AGENTS diverifikasi. Aturan yang ada dibiarkan utuh; tidak ditemukan konflik substansial.
+
+## Checkpoint diagnosis dan circuit breaker
+
+Percobaan boot aplikasi pertama lulus tes unit/build dan Chrome. WebKit ephemeral gagal berulang pada penyimpanan demo; rangkaian dihentikan untuk diagnosis sebelum perubahan berikutnya. Repro terisolasi membuktikan string/ArrayBuffer berhasil, sedangkan Blob gagal dengan `UnknownError: Error preparing Blob/File data to be stored in object store`. Ini sesuai [Playwright #42795](https://github.com/microsoft/playwright/issues/42795).
+
+Profil persisten yang ditempatkan di bawah output tes masih gagal; profil diagnosis pendek berhasil membuka library dalam sekitar 3,5 detik. Fixture kemudian memakai direktori sementara pendek dan unik, dibersihkan setelah browser ditutup. Pembatasan panjang path Windows adalah dugaan penyebab perbedaan profil, bukan temuan pada iPhone. Dengan profil pendek, boot dan penyimpanan WebKit lulus. Pemeriksaan berikutnya menunjukkan Web Audio tidak tersedia pada runtime Windows ini; tes audio dilewati dengan alasan eksplisit, tanpa percobaan patch audio spekulatif. CI Linux dikonfigurasi memasang WebKit dan menjalankan alur yang sama bila Web Audio tersedia.
+
+## Kecocokan deployment dan batas rilis
+
+Pada pemeriksaan ini halaman produksi dan aset JS/CSS merespons HTTP 200. Build terisolasi snapshot baseline dengan prefix `/Beat-Orbit/` menghasilkan nama aset yang sama dan hash SHA-256 identik dengan deployment:
+
+| Aset baseline/deployment | SHA-256 |
+| --- | --- |
+| `index-DepZhUTP.js` | `A7B81C4D8D25A2B2FE664B426BA462E9B274ED8B5ECFC05A7CC3F78ED06CB631` |
+| `index-DbYvD5K2.css` | `6BD634793C49B6A95FE54D50ABF88B234C141C3EBF2609E8D16FFD06EDB7B315` |
+
+Bukti ini menghubungkan aset produksi lama dengan snapshot yang diperiksa, bukan dengan perubahan lokal baru. Sebelum rilis tetap diperlukan Safari iPhone fisik: kunjungan awal/ulang, satu demo penuh mulai–pause–resume–results, multitouch Dual, interupsi/background, safe area, orientasi, integritas library pengguna, dan pengukuran FPS/memori. Kriteria keseluruhan pengguna belum terpenuhi sampai pemeriksaan perangkat itu lulus. Lihat MANUAL_QA.md.
+
+---
+
+# Riwayat deployment sebelum perubahan ini
 
 Tanggal: 22 Oktober 2026 (Asia/Makassar).
 

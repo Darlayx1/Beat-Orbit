@@ -7,6 +7,15 @@ let repo: Repository;
 beforeEach(async()=>{globalThis.indexedDB=new IDBFactory();repo=new Repository();await repo.open();});
 afterEach(()=>{repo.close();vi.restoreAllMocks();});
 describe('transactional local library',()=>{
+  it('seeds idempotently and preserves preexisting song/chart data without a seed marker',async()=>{
+    const c=chart();await repo.addSong({...song,title:'My title'},new Blob(['my audio']));
+    const saved=await repo.saveChart({...c,name:'My edited chart'},0);
+    await repo.seed([song],[new Blob(['demo audio'])],[c]);
+    await repo.seed([song],[new Blob(['replacement'])],[c]);
+    expect((await repo.songs())[0].title).toBe('My title');
+    expect(await(await repo.audio(song.id))!.text()).toBe('my audio');
+    expect(await repo.charts()).toEqual([saved]);
+  });
   it('persists Blob audio and metadata across repository reopen',async()=>{
     await repo.addSong(song,new Blob(['original-audio'],{type:'audio/wav'}));
     repo.close();repo=new Repository();await repo.open();

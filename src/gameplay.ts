@@ -1,4 +1,4 @@
-import { clone, type Chart, type Note, type Side, type SymbolName } from './domain';
+import { clone, parseChart, type Chart, type Note, type Side, type SymbolName } from './domain';
 
 export const WINDOWS = { perfect: 45, great: 90, good: 135 };
 export type Judgement = 'perfect' | 'great' | 'good' | 'miss';
@@ -10,11 +10,14 @@ export class Gameplay {
   private cursor = 0;
   private holds = new Map<string, RuntimeNote>();
   private active = new Set<string>();
+  private suspended = new Set<RuntimeNote>();
   onJudge?: (judgement: Judgement, note: Note) => void;
-  constructor(chart: Chart) { this.notes = clone(chart.notes).sort((a, b) => a.timeMs - b.timeMs || a.id.localeCompare(b.id)).map(n => ({ ...n, state: 'pending' })); }
+  constructor(chart: Chart) { this.notes = clone(parseChart(chart).notes).sort((a, b) => a.timeMs - b.timeMs || a.id.localeCompare(b.id)).map(n => ({ ...n, state: 'pending' })); }
   press(owner: string, symbol: SymbolName, side: 'left' | 'right', time: number): boolean {
     if (this.active.has(owner)) return false;
     this.active.add(owner);
+    const suspended = [...this.suspended].find(n => n.symbol === symbol && n.boundSide === side);
+    if (suspended) { this.suspended.delete(suspended); suspended.owner = owner; this.holds.set(owner, suspended); return true; }
     if ([...this.holds.values()].some(n => n.boundSide === side)) return false;
     let candidate: RuntimeNote | undefined, delta = Infinity;
     // Search only the hittable interval, not every note on each input.
@@ -41,12 +44,15 @@ export class Gameplay {
   }
   update(time: number) {
     for (const [owner, n] of this.holds) if (time >= n.timeMs + n.durationMs!) { this.holds.delete(owner); this.finish(n, n.head!); }
+    for (const n of this.suspended) if (time >= n.timeMs + n.durationMs!) { this.suspended.delete(n); this.finish(n, 'miss'); }
     while (this.cursor < this.notes.length && this.notes[this.cursor].timeMs < time - WINDOWS.good) {
       const n = this.notes[this.cursor++];
       if (n.state === 'pending') this.finish(n, 'miss');
     }
   }
-  cancelInputs(time: number) { [...this.active].forEach(owner => this.release(owner, time, true)); this.active.clear(); }
+  // Pause does not judge a Hold. A matching fresh press can rebind it after resume.
+  suspendInputs() { for (const n of this.holds.values()) { n.owner = undefined; this.suspended.add(n); } this.holds.clear(); this.active.clear(); }
+  cancelInputs(time: number) { for(const n of this.suspended)this.finish(n,'miss');this.suspended.clear(); [...this.active].forEach(owner => this.release(owner, time, true)); this.active.clear(); }
   private finish(n: RuntimeNote, judgement: Judgement) {
     if (n.state === 'done') return;
     n.state = 'done'; n.judgement = judgement; this.counts[judgement]++;

@@ -12,13 +12,13 @@ TypeScript dan Vite untuk aplikasi statis; Canvas 2D untuk timeline/gameplay; We
 
 - Song berisi metadata dan identitas lokal.
 - Audio disimpan terpisah sebagai Blob, menggunakan song ID sebagai key.
-- Chart version 1 adalah dokumen otoritatif note dan timing.
+- Chart version 2 adalah dokumen otoritatif note, timing, posisi target, arah masuk, dan travel time.
 - Draft menyimpan snapshot dan baseRevision secara terpisah.
 - Results menyimpan chart ID, revision, dan score.
 - Available difficulties diturunkan dari chart, bukan daftar yang harus disinkronkan terpisah.
 
 Database version dan schemaVersion chart memiliki fungsi berbeda. Versi database pertama membuat stores songs, audio, charts, drafts, results, settings.
-Import schema yang tidak didukung ditolak. Belum ada format tersimpan lama yang perlu dimigrasi.
+Import schema yang tidak didukung ditolak. Parser mengonversi chart/draft versi 1 ke versi 2 dalam memori tanpa menulis ulang data lama otomatis. Save dan ekspor mempertahankan field baru. Target ternormalisasi berada pada rentang 0.08–0.92; arah 0–<360 derajat mengarah dari target ke tepi (0 kanan, 90 bawah); travel time 200–5000 ms. Layout default versi 1 ditentukan simbol secara deterministik.
 
 ## Clock dan transport
 
@@ -48,7 +48,15 @@ Hold dinilai sekali dan tidak menggunakan tick scoring. Perubahan ruleset mendat
 Playtest menerima deep snapshot dan tidak mengubah chart tersimpan ataupun personal best.
 Editor document, history, selection, zoom, serta scroll dipertahankan ketika berpindah ke Playtest dan kembali.
 Navigasi meninggalkan editor menawarkan save atau recovery draft.
-Interupsi gameplay menawarkan restart; resume mid-Hold belum tersedia.
+Interupsi gameplay membekukan audio dan menawarkan Resume atau Restart. Hold yang terinterupsi dilepas dari pemilik input tanpa judgement saat pause, lalu dapat diikat kembali dengan press simbol/sisi yang sama. Hold yang tidak ditekan kembali menjadi miss di akhir durasinya.
+
+## Boot dan renderer
+
+BootSession membatasi seluruh boot hingga 14 detik dan mencatat durasi tiap tahap di console lokal. Abort membatalkan generasi demo dan menutup repository/transaksi. Pembukaan database atau transaksi dibatasi 8 detik; koneksi yang selesai terlambat ditutup. Retry memakai sesi baru dan hasil pemuatan lama tidak dapat mengganti library sesi baru. Seed atomik mempertahankan record yang sudah ada.
+
+Generasi PCM demo menghasilkan potongan 16.384 sampel dan menyerahkan kontrol kembali ke event loop. Tidak ada upload untuk diagnosis atau demo.
+
+`stage.ts` dipakai PlayView dan preview Studio. Posisi note dihitung langsung dari waktu audio, titik masuk di tepi, target, dan travel time; renderer tidak mengakumulasi perpindahan per frame. Matching Dual berbagi satu simbol solid sambil mempertahankan kedua state input; Dual berbeda dihubungkan garis. Bentuk simbol memakai path Canvas/SVG.
 
 ## Batas yang sengaja dipertahankan
 

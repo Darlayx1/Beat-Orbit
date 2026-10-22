@@ -12,7 +12,7 @@ describe('portable chart schema', () => {
     expect(()=>parseChart(chart([tap(time)]))).toThrow();
   });
   it('rejects unknown versions and rulesets', () => {
-    expect(()=>parseChart({...chart(),schemaVersion:2})).toThrow(/version/i);
+    expect(()=>parseChart({...chart(),schemaVersion:99})).toThrow(/version/i);
     expect(()=>parseChart({...chart(),rulesetId:'unknown'})).toThrow(/ruleset/i);
   });
   it('rejects duplicate IDs and non-positive Holds', () => {

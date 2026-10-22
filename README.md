@@ -48,8 +48,10 @@ Pan menggeser timeline; tombol −/+ mengatur zoom. Pinch zoom belum diimplement
 | Cross × | F | ; |
 
 Kontrol sentuh menampilkan kedua bank simbol. Note biasa menerima salah satu sisi.
+Masing-masing bank berisi empat tombol lingkaran vertikal, berurutan △ ○ □ ×, di kiri dan kanan area bermain.
 Dual dengan simbol sama membutuhkan sisi L dan R serta dua input terpisah.
-Hold terikat pada input yang memulainya.
+Dual memakai simbol solid; matching Dual pada target yang sama tampil sebagai satu simbol dengan indikator input parsial. Note bergerak dari tepi layar menuju target yang ditentukan chart.
+Hold terikat pada input yang memulainya. Pause membekukan waktu; setelah Resume, tekan kembali simbol/sisi Hold yang terinterupsi sampai akhir.
 
 Studio: Space untuk preview; N untuk memasukkan simbol terpilih pada playhead; Ctrl/Cmd+Z untuk undo; Ctrl/Cmd+Shift+Z untuk redo; Ctrl/Cmd+S untuk save; Delete/Backspace untuk menghapus selection.
 Shortcut diabaikan ketika mengetik.
@@ -65,7 +67,9 @@ Shortcut diabaikan ketika mengetik.
 - Waveform ringkas dari PCM, timeline virtual, zoom, scroll, seek, dan playhead.
 - Draft dengan debounce, recovery chart baru maupun tersimpan, dan pemeriksaan revision.
 - Playtest snapshot melalui engine yang sama dengan Standard Play.
-- Chart JSON version 1 dengan pemilihan audio lokal secara eksplisit.
+- Chart JSON version 2 dengan target, arah masuk, dan travel time; versi 1 dikonversi secara deterministik saat dibaca.
+- Preview panggung di Studio: geser target terpilih, atur koordinat, arah masuk dan travel time di inspector, lalu scrub waktu.
+- Boot memiliki tenggat 14 detik, diagnosis tahap lokal, generasi demo bertahap, timeout transaksi, dan tombol Retry tanpa reset data.
 - Mirrored controls, pointer ownership, judgement, score, combo, results, dan session history.
 - Tiga demo musik orisinal yang dihasilkan lokal; tidak ada audio jarak jauh.
 - Font dibundel lokal. Aplikasi tidak mengirim audio atau chart ke layanan eksternal.
@@ -109,9 +113,9 @@ Suite browser disiapkan di tests/browser:
 
     npm run test:e2e
 
-Konfigurasi menggunakan Google Chrome yang terpasang dan preview build produksi pada port 4173. Suite mencakup desktop serta viewport mobile landscape.
-Enam skenario browser berhasil dijalankan di GitHub Actions: alur impor sampai permainan dan pengeditan ulang, recovery draft setelah refresh, serta ekspor/impor JSON pada kedua viewport.
-63 pengujian unit/integrasi/DOM juga lulus. Dependency pengujian telah diperbarui ke Vitest 5; audit npm terakhir tidak melaporkan kerentanan.
+Konfigurasi menggunakan Google Chrome yang terpasang dan WebKit, dengan preview build produksi pada port 4173. Instal runtime WebKit melalui `npx playwright install webkit` (CI Linux memakai `--with-deps`). Suite mencakup desktop, mobile landscape, serta WebKit portrait. Audio memakai gesture normal tanpa flag bypass autoplay.
+WebKit menggunakan profil persisten terisolasi karena konteks ephemeral tidak dapat menyimpan Blob IndexedDB. Runtime WebKit Windows yang tidak menyediakan AudioContext secara eksplisit melewati tes audio; tes boot dan ekspor/impor tetap berjalan. Tidak ada mock audio pada suite browser.
+Hasil aktual perubahan ini dicatat di docs/STATUS.md; hasil deployment lama tidak membuktikan perubahan lokal sudah dirilis.
 Safari iPhone, Android fisik, multitouch fisik, kualitas suara pada perangkat, dan profiling frame time belum diverifikasi. Emulasi viewport bukan bukti perangkat fisik.
 
 Lihat docs/STATUS.md untuk hasil aktual dan docs/MANUAL_QA.md untuk pemeriksaan perangkat.

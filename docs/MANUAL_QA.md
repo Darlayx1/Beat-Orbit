@@ -34,7 +34,8 @@ Catat tanggal, browser/versi, OS, model perangkat, output audio (speaker/kabel/B
 - Tahan Hold sambil memukul Tap dengan ibu jari lain.
 - Lepas Hold terlalu awal dan picu pointercancel.
 - Uji perubahan tab, panggilan/interupsi audio, layar terkunci, dan hilangnya fokus.
-- Restart membersihkan input serta score; run terinterupsi tidak disimpan.
+- Pause harus membekukan waktu; Resume melanjutkan waktu yang sama. Tekan kembali simbol/sisi Hold yang terinterupsi; tanpa press ulang, Hold harus miss pada akhirnya.
+- Restart membersihkan input serta score; run yang ditinggalkan tidak disimpan.
 - Uji keluaran speaker dan Bluetooth secara terpisah. Kalibrasi belum tersedia.
 
 ## Performa dan storage
@@ -45,6 +46,10 @@ Catat tanggal, browser/versi, OS, model perangkat, output audio (speaker/kabel/B
 - Uji quota storage melalui lingkungan uji; saved status tidak boleh palsu.
 - Uji penolakan persistent storage dan data yang hilang setelah site data dibersihkan.
 - Pastikan tidak ada audio/chart pengguna pada request jaringan.
+- Pada iPhone 17 / iOS 27 / Safari pengguna: kunjungan pertama, kunjungan ulang, storage ditolak/terblokir, dan operasi tidak selesai harus mencapai library atau pesan Retry dalam 15 detik saat halaman aktif.
+- Mainkan satu demo penuh: mulai lewat sentuhan, pause, resume, background/kembali, orientasi, dan results. Pastikan data library lama tetap utuh.
+- Verifikasi lima posisi target, delapan arah, solid Dual (termasuk satu sentuhan parsial dan dua sentuhan bersamaan), serta Hold tanpa skor ganda.
+- Ukur FPS dan memori selama sesi penuh. Sasaran 60 FPS belum dibuktikan oleh emulasi desktop.
 
 ## Matriks awal
 

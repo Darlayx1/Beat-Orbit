@@ -15,6 +15,21 @@ async function mount(notes= [] as ReturnType<typeof tap>[]){
   return{c,playtest,canvas:document.querySelector('canvas')!};
 }
 describe('Studio DOM interactions',()=>{
+  it('moves a matching Dual target in one undo step and retains direction through save and reload',async()=>{
+    await mount([tap(1000,{side:'left',chordId:'d'}),tap(1000,{side:'right',chordId:'d'})]);
+    click('[data-tool="select"]');
+    const timeline=document.querySelector('#timeline')!;
+    pointer(timeline,'pointerdown',155,126);pointer(timeline,'pointerup',155,126);
+    change('#note-entry','225');change('#note-travel','2200');
+    const stage=document.querySelector('#stage-preview')!;
+    pointer(stage,'pointerdown',300,200);pointer(stage,'pointermove',450,240);pointer(stage,'pointerup',450,240);
+    expect(studio!.chart.notes[0].target).toEqual(studio!.chart.notes[1].target);
+    expect(studio!.chart.notes[0].target.x).not.toBe(.5);
+    click('[data-editor="undo"]');expect(studio!.chart.notes[0].target.x).toBe(.5);
+    click('[data-editor="redo"]');await studio!.save();
+    const saved=(await repo.charts())[0];expect(saved.notes).toEqual(studio!.chart.notes);
+    expect(saved.notes.every(n=>n.entryAngleDeg===225&&n.travelTimeMs===2200)).toBe(true);
+  });
   it('places Tap, Hold, and matching Dual notes through the actual tools',async()=>{
     const {canvas}=await mount();
     pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);

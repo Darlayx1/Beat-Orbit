@@ -5,9 +5,11 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/barlow-condensed/latin-700.css';
 import '@fontsource/barlow-condensed/latin-800.css';
 import './style.css';
-import { DIFFICULTIES, GLYPHS, LIMITS, SYMBOLS, clone, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
-import { AudioTransport, makeDemoAudio } from './audio';
+import { DIFFICULTIES, GLYPHS, LIMITS, SYMBOLS, clone, defaultLayout, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
+import { AudioTransport, makeDemoAudioAsync } from './audio';
 import { Repository, storageMessage } from './storage';
+import { symbolSVG } from './stage';
+import { BootSession } from './boot';
 import { Studio } from './studio';
 import { PlayView } from './play';
 import { downloadJSON, esc, icon, toast } from './ui';
@@ -273,7 +275,7 @@ function manageSong(song: Song) {
   }));
 }
 function guide() {
-  modal('A little rhythm goes a long way.',`<div class="guide-symbols">${GLYPHS.map(g=>'<span>'+g+'</span>').join('')}</div><ol class="guide-steps"><li><strong>Bring your own sound.</strong> Import an audio file, or start with our locally generated demo tracks.</li><li><strong>Make an orbit.</strong> In Studio, set BPM and grid offset, then place Tap, Hold, and Dual notes on the timeline. Save your chart.</li><li><strong>Find the rhythm.</strong> Notes travel outward. Tap the matching symbol when it reaches the outer ring. Keep pressing Hold notes until their trail ends.</li><li><strong>Choose either side.</strong> Ordinary notes work on either control bank. Matching Dual notes show L / R and need two separate inputs.</li></ol><div class="keyboard-guide"><b>LEFT</b><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><span> / </span><b>RIGHT</b><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd></div><p class="small-muted">Perfect ±45 ms · Great ±90 ms · Good ±135 ms. Each note scores 1000 / 700 / 300 / 0. A Hold resolves once; release over 135 ms early counts as a miss.</p><p class="small-muted">Studio: Space to preview · Ctrl/Cmd+Z to undo · Ctrl/Cmd+Shift+Z to redo · Delete to remove selection. Shortcuts are disabled while typing.</p>`,'<button class="button primary" data-cancel>Find my flow '+icon('arrow')+'</button>');
+  modal('A little rhythm goes a long way.',`<div class="guide-symbols">${SYMBOLS.map(symbol=>'<span>'+symbolSVG(symbol)+'</span>').join('')}</div><ol class="guide-steps"><li><strong>Bring your own sound.</strong> Import an audio file, or start with our locally generated demo tracks.</li><li><strong>Make an orbit.</strong> In Studio, set BPM and grid offset, then place Tap, Hold, and Dual notes on the timeline. Save your chart.</li><li><strong>Find the rhythm.</strong> Notes travel from any edge to stationary targets. Tap the matching symbol when the note meets its target. Keep pressing Hold notes until their trail ends.</li><li><strong>Choose either side.</strong> Ordinary notes work on either control bank. Solid Dual symbols need two separate inputs. Matching symbols share one target; its counter shows partial progress. Use both banks for matching Duals. After resuming, press any interrupted Hold again until its end.</li></ol><p class="small-muted">Dual example: ${symbolSVG('triangle',true)} Solid = two inputs. Outline = single input.</p><div class="keyboard-guide"><b>LEFT</b><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><span> / </span><b>RIGHT</b><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd></div><p class="small-muted">Perfect ±45 ms · Great ±90 ms · Good ±135 ms. Each note scores 1000 / 700 / 300 / 0. A Hold resolves once; release over 135 ms early counts as a miss.</p><p class="small-muted">Studio: Space to preview · Ctrl/Cmd+Z to undo · Ctrl/Cmd+Shift+Z to redo · Delete to remove selection. Shortcuts are disabled while typing.</p>`,'<button class="button primary" data-cancel>Find my flow '+icon('arrow')+'</button>');
 }
 async function settings() {
   let estimate: StorageEstimate={};try{estimate=await navigator.storage?.estimate?.()||{};}catch{/* optional */}
@@ -329,33 +331,49 @@ app.addEventListener('click',e=>{
 });
 window.addEventListener('beforeunload',e=>{if(studio?.dirty){e.preventDefault();e.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&studio)void studio.flushDraft().catch(()=>{});});
+let boot: BootSession | undefined;
+let previewStarted = false;
 async function init() {
+  boot?.cancel(); repo.close();
+  const session = boot = new BootSession();
+  session.signal.addEventListener('abort', () => repo.close(), { once: true });
+  const stage = <T>(name: string, work: () => Promise<T>) => {
+    const status = app.querySelector('#boot-status'); if (status) status.textContent = name + '…';
+    return session.stage(name, work);
+  };
   app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Opening your local workspace…</p></div>';
   try{
-    await repo.open();
-    if(!(await repo.setting('demo-seeded'))){
+    await stage('Opening local storage', () => repo.open());
+    if(!(await stage('Reading demo settings', () => repo.setting('demo-seeded')))){
       app.querySelector('#boot-status')!.textContent='Creating your original demo tracks…';
       await new Promise(resolve=>setTimeout(resolve,30));
       const configs=[{id:'demo-lunar',title:'Lunar Drift',artist:'BeatOrbit Originals',bpm:112,seconds:64,root:220},{id:'demo-midnight',title:'Midnight Circuit',artist:'BeatOrbit Originals',bpm:128,seconds:72,root:246.94},{id:'demo-afterglow',title:'Afterglow',artist:'BeatOrbit Originals',bpm:96,seconds:58,root:196}];
       const demoSongs:Song[]=[],audio:Blob[]=[],demoCharts:Chart[]=[];
       for(let i=0;i<configs.length;i++){
-        const config=configs[i],blob=makeDemoAudio(config.bpm,config.seconds,config.root);
+        const config=configs[i],blob=await stage('Generating demo '+(i+1)+'/3', () => makeDemoAudioAsync(config.bpm,config.seconds,config.root,session.signal));
         const song:Song={id:config.id,title:config.title,artist:config.artist,bpm:config.bpm,durationMs:config.seconds*1000,fileName:config.title+'.wav',format:'wav',fileSize:blob.size,importedAt:'2026-01-01T00:00:0'+(3-i)+'.000Z',source:'demo',palette:i};
         const chart=newChart(song,i===1?'hard':i===2?'easy':'normal');chart.name=['Lunar flow','Circuit run','Golden hour'][i];chart.chartId='chart-'+config.id;chart.revision=1;
         const beat=60000/config.bpm;
         for(let n=0,time=beat*8;time<song.durationMs-4000;n++,time+=beat*(i===2?2:1)){
-          if(n%12===8){const chord=uid();chart.notes.push({id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'left',timeMs:time,chordId:chord},{id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'right',timeMs:time,chordId:chord});}
-          else chart.notes.push({id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat*.7}:{})});
+          const points=[{x:.2,y:.25},{x:.75,y:.25},{x:.5,y:.5},{x:.25,y:.75},{x:.8,y:.7}];
+          const layout={...defaultLayout(SYMBOLS[n%4]),target:points[n%points.length],entryAngleDeg:n%8*45};
+          if(n%12===8){const chord=uid();chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'left',timeMs:time,chordId:chord},{...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'right',timeMs:time,chordId:chord});}
+          else chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat*.7}:{})});
         }
         demoSongs.push(song);audio.push(blob);demoCharts.push(chart);
         await new Promise(resolve=>setTimeout(resolve,0));
       }
-      await repo.seed(demoSongs,audio,demoCharts);
+      await stage('Saving demos', () => repo.seed(demoSongs,audio,demoCharts));
     }
-    await refreshData();library();requestAnimationFrame(previewFrame);
+    const data=await stage('Loading library', () => Promise.all([repo.songs(),repo.charts(),repo.results(),repo.drafts()]));
+    if (boot !== session || session.signal.aborted) return;
+    [songs,charts,results,drafts]=data;
+    library();if(!previewStarted){previewStarted=true;requestAnimationFrame(previewFrame);}
   }catch(e){
-    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your local workspace could not open.</h1><p>${esc(storageMessage(e))}</p><p class="small-muted">Enable browser storage for this site, close older BeatOrbit tabs, and reload. Existing data has not been reset.</p><button class="button primary" id="reload-app">Reload workspace</button></div>`;
-    app.querySelector('#reload-app')!.addEventListener('click',()=>location.reload());
-  }
+    if(boot !== session)return;
+    repo.close();
+    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your local workspace could not open.</h1><p>${esc(session.currentStage)}: ${esc(storageMessage(e))}</p><p class="small-muted">Enable browser storage for this site, close older BeatOrbit tabs, and reload. Existing data has not been reset.</p><button class="button primary" id="reload-app">Retry workspace</button></div>`;
+    app.querySelector('#reload-app')!.addEventListener('click',()=>void init());
+  }finally{session.finish();}
 }
 void init();

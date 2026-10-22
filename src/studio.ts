@@ -1,11 +1,11 @@
-import { DIFFICULTIES, EditorDocument, GLYPHS, SYMBOLS, clone, exactTime, formatTime, parseChart, snapTime, sortNotes, uid, validatePlayable, type Chart, type Note, type Song } from './domain';
+import { DIFFICULTIES, EditorDocument, GLYPHS, SYMBOLS, clone, defaultLayout, exactTime, formatTime, parseChart, snapTime, sortNotes, uid, validatePlayable, type Chart, type Note, type Song } from './domain';
 import { AudioTransport, waveform } from './audio';
 import { Repository, storageMessage } from './storage';
+import { COLORS, drawStage, drawSymbol, groupNotes, symbolSVG, targetPoint, type NoteGroup } from './stage';
 import { downloadJSON, esc, icon, toast } from './ui';
 
 type Tool = 'select' | 'tap' | 'hold' | 'dual' | 'erase' | 'pan';
 type Gesture = { pointer: number; startX: number; startY: number; startScroll: number; time: number; lane: number; note?: Note; mode: 'move' | 'resize' | 'pan' | 'place'; moved: boolean; preview?: Note };
-const COLORS = ['#b5f578', '#9daaff', '#f6b97b', '#e7a6ed'];
 const signature = (chart: Chart) => JSON.stringify({ ...chart, revision: 0, updatedAt: '' });
 export class Studio {
   doc: EditorDocument;
@@ -14,6 +14,10 @@ export class Studio {
   private root?: HTMLElement;
   private canvas?: HTMLCanvasElement;
   private viewport?: HTMLElement;
+  private stage?: HTMLCanvasElement;
+  private stageNotes?: Note[];
+  private stageGroups: NoteGroup[] = [];
+  private stageDrag?: { pointer: number; ids: string[]; target: {x:number;y:number} };
   private observer?: ResizeObserver;
   private raf = 0;
   private timer?: ReturnType<typeof setTimeout>;
@@ -73,6 +77,7 @@ export class Studio {
           <div class="toolbar-group"><button class="icon-button zoom-button" data-editor="zoom-out" aria-label="Zoom out">−</button><span id="zoom-label">100%</span><button class="icon-button zoom-button" data-editor="zoom-in" aria-label="Zoom in">+</button><button class="icon-button" data-editor="inspector" aria-label="Toggle note inspector">${icon('info')}</button></div></div>
           <div class="timeline-scroll" id="timeline-scroll"><canvas id="timeline" aria-label="Interactive beatmap timeline"></canvas><div id="timeline-spacer"></div></div>
           <div class="timeline-transport"><div class="transport-buttons"><button class="icon-button" data-editor="restart" aria-label="Return to start">↤</button><button class="transport-play" data-editor="preview" aria-label="Preview audio">${icon('play')}</button><span id="studio-time">0:00.000</span><span class="small-muted"> / ${formatTime(this.song.durationMs)}</span></div><button class="button subtle follow active" data-editor="follow">Follow playhead</button><span class="timeline-count" id="note-count"></span></div>
+          <div class="stage-preview"><div class="stage-preview-header"><span class="eyebrow">PERFORMANCE STAGE</span><span>Choose a note, then drag its target</span></div><canvas id="stage-preview" aria-label="Drag selected target in performance stage"></canvas><label>SCRUB<input id="stage-scrub" aria-label="Stage preview time" type="range" min="0" max="${this.song.durationMs}" step="1" value="${this.transport.nowMs}"></label></div>
           <div class="timeline-help"><span>Place notes on a track · Pan tool to scroll · Drag selected notes to edit</span><span>1/4 = one beat</span></div>
         </div>
         <aside class="inspector panel" id="inspector"></aside>
@@ -82,6 +87,8 @@ export class Studio {
     timing.className = 'button ghost settings-toggle'; timing.dataset.editor = 'settings'; timing.textContent = 'Timing';
     timing.setAttribute('aria-label','Chart and timing settings');
     root.querySelector('.studio-actions')!.insertBefore(timing,root.querySelector('[data-editor="export"]'));
+    this.stage = root.querySelector('#stage-preview')!;
+    this.stage.addEventListener('pointerdown',this.stageDown);this.stage.addEventListener('pointermove',this.stageMove);this.stage.addEventListener('pointerup',this.stageUp);this.stage.addEventListener('pointercancel',this.stageCancel);
     this.canvas = root.querySelector('#timeline')!; this.viewport = root.querySelector('#timeline-scroll')!;
     root.querySelector('.timeline-help span')!.textContent = 'Click a track to place · N inserts the selected symbol at the playhead · Pan to scroll';
     this.viewport.scrollLeft = this.scroll;
@@ -104,11 +111,13 @@ export class Studio {
     this.viewport?.removeEventListener('scroll', this.onScroll);
     this.canvas?.removeEventListener('pointerdown', this.down); this.canvas?.removeEventListener('pointermove', this.move);
     this.canvas?.removeEventListener('pointerup', this.up); this.canvas?.removeEventListener('pointercancel', this.cancel); this.canvas?.removeEventListener('lostpointercapture', this.cancel);
+    this.stage?.removeEventListener('pointerdown',this.stageDown);this.stage?.removeEventListener('pointermove',this.stageMove);this.stage?.removeEventListener('pointerup',this.stageUp);this.stage?.removeEventListener('pointercancel',this.stageCancel);this.stageDrag=undefined;
     window.removeEventListener('keydown', this.key); this.gesture = undefined; this.root = undefined;
   }
   async dispose() { clearTimeout(this.timer); await this.saving; await this.flushDraft(); this.unmount(); this.active = false; }
   private resize() {
     if (!this.canvas || !this.viewport || !this.root) return;
+    if(this.stage){const rect=this.stage.getBoundingClientRect(),scale=Math.min(devicePixelRatio||1,2);this.stage.width=rect.width*scale;this.stage.height=rect.height*scale;}
     const width = this.viewport.clientWidth, height = window.innerHeight < 540 ? 246 : 350, dpr = Math.min(devicePixelRatio || 1, 2);
     this.canvas.style.width = width + 'px'; this.canvas.style.height = height + 'px';
     this.canvas.width = width * dpr; this.canvas.height = height * dpr;
@@ -175,15 +184,19 @@ export class Studio {
     this.root.querySelector<HTMLInputElement>('#chart-offset')!.value = String(this.chart.timing.offsetMs);
     this.root.querySelector<HTMLSelectElement>('#chart-difficulty')!.value = this.chart.difficulty;
     this.root.querySelector<HTMLSelectElement>('#chart-meter')!.value = String(this.chart.timing.timeSignature.numerator);
-    const n = this.chart.notes.find(n => n.id === this.selected), check = validatePlayable(this.chart, this.song.durationMs);
+    const n = this.chart.notes.find(n => n.id === this.selected), selectedGroup = groupNotes(this.chart.notes).find(g=>g.some(item=>item.id===this.selected)), check = validatePlayable(this.chart, this.song.durationMs);
     const inspector = this.root.querySelector('#inspector')!;
     inspector.innerHTML = `<div class="inspector-title"><span class="eyebrow">${n ? 'NOTE PROPERTIES' : 'CHART OVERVIEW'}</span><span class="tiny-tag">${n ? n.type.toUpperCase() : this.chart.difficulty.toUpperCase()}</span></div>${n ? `
-      <div class="selected-symbol" style="color:${COLORS[SYMBOLS.indexOf(n.symbol)]}">${GLYPHS[SYMBOLS.indexOf(n.symbol)]}</div>
+      <div class="selected-symbol" style="color:${COLORS[SYMBOLS.indexOf(n.symbol)]}">${symbolSVG(n.symbol,!!selectedGroup?.dual)}</div>
       <label>SYMBOL<select id="note-symbol">${SYMBOLS.map((s,i) => `<option value="${s}" ${n.symbol === s ? 'selected' : ''}>${GLYPHS[i]} ${s}</option>`).join('')}</select></label>
       <label>TYPE<select id="note-type"><option value="tap" ${n.type === 'tap' ? 'selected' : ''}>Tap</option><option value="hold" ${n.type === 'hold' ? 'selected' : ''}>Hold</option></select></label>
       <label>TIME · MS<input id="note-time" type="number" min="0" max="${this.song.durationMs}" step="1" value="${Math.round(n.timeMs)}"></label>
       ${n.type === 'hold' ? `<label>DURATION · MS<input id="note-duration" type="number" min="1" step="1" value="${Math.round(n.durationMs!)}"></label>` : ''}
       <label>INPUT SIDE<select id="note-side">${['either','left','right'].map(s => `<option value="${s}" ${n.side === s ? 'selected' : ''}>${s === 'either' ? 'Either side' : s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select></label>
+      <label>TARGET X<input id="note-target-x" type="number" min="0.08" max="0.92" step="0.01" value="${n.target.x}"></label>
+      <label>TARGET Y<input id="note-target-y" type="number" min="0.08" max="0.92" step="0.01" value="${n.target.y}"></label>
+      <label>ENTRY DIRECTION<select id="note-entry">${Array.from(new Set([0,45,90,135,180,225,270,315,n.entryAngleDeg])).sort((a,b)=>a-b).map(deg=>`<option value="${deg}" ${n.entryAngleDeg===deg?'selected':''}>${deg}° · ${({0:'Right',45:'Bottom right',90:'Bottom',135:'Bottom left',180:'Left',225:'Top left',270:'Top',315:'Top right'} as Record<number,string>)[deg]||'Custom'}</option>`).join('')}</select></label>
+      <label>TRAVEL · MS<input id="note-travel" type="number" min="200" max="5000" step="50" value="${n.travelTimeMs}"></label>
       <div class="inspector-actions"><button class="button subtle" data-editor="duplicate">Duplicate</button><button class="icon-button danger" data-editor="delete" aria-label="Delete selected note">${icon('trash')}</button></div>` : `
       <div class="overview-orbit">◎</div><h3>Build your rhythm.</h3><p class="muted">Choose a tool and symbol, then tap a track to place your first note.</p>
       <div class="chart-stat"><span>Total notes</span><b>${this.chart.notes.length}</b></div><div class="chart-stat"><span>Hold notes</span><b>${this.chart.notes.filter(n => n.type === 'hold').length}</b></div><div class="chart-stat"><span>Chart span</span><b>${formatTime(Math.max(0, ...this.chart.notes.map(n => n.timeMs + (n.durationMs || 0))))}</b></div>`}
@@ -236,6 +249,7 @@ export class Studio {
   }
   private change = (event: Event) => {
     const input = event.target as HTMLInputElement, value = input.value;
+    if(input.id==='stage-scrub'){this.follow=false;void this.transport.seek(Number(value)).catch(e=>toast(e.message,true));return;}
     if (input.id === 'second-symbol') { this.secondSymbol = Number(value); return; }
     if (input.id === 'snap-resolution') { this.snap = Number(value); return; }
     this.edit(c => {
@@ -245,6 +259,10 @@ export class Studio {
       if (input.id === 'chart-offset') c.timing.offsetMs = Number(value);
       if (input.id === 'chart-meter') c.timing.timeSignature.numerator = Number(value);
       const n = c.notes.find(n => n.id === this.selected); if (!n) return;
+      if (['note-target-x','note-target-y','note-entry','note-travel'].includes(input.id)) {
+        const group=groupNotes(c.notes).find(g=>g.some(item=>item.id===n.id))||[n];
+        for(const item of group){if(input.id==='note-target-x')item.target.x=Number(value);if(input.id==='note-target-y')item.target.y=Number(value);if(input.id==='note-entry')item.entryAngleDeg=Number(value);if(input.id==='note-travel')item.travelTimeMs=Number(value);}
+      }
       if (input.id === 'note-time') n.timeMs = Number(value);
       if (input.id === 'note-duration') n.durationMs = Number(value);
       if (input.id === 'note-symbol') n.symbol = value as Note['symbol'];
@@ -274,8 +292,9 @@ export class Studio {
     if (p.lane < 0 || p.lane > 3) return;
     this.canvas!.setPointerCapture(e.pointerId);
     const row = (this.canvas!.getBoundingClientRect().height - 112) / 4;
+    const dualIds=new Set(groupNotes(this.chart.notes).filter(g=>g.dual).flatMap(g=>g.map(n=>n.id)));
     const hit = [...this.chart.notes].reverse().find(n => {
-      const y = 96 + row * (p.lane + .5) + (n.side === 'left' ? -row * .19 : n.side === 'right' ? row * .19 : 0);
+      const y = 96 + row * (p.lane + .5) + (dualIds.has(n.id) ? 0 : n.side === 'left' ? -row * .19 : n.side === 'right' ? row * .19 : 0);
       return SYMBOLS.indexOf(n.symbol) === p.lane && Math.abs(p.y - y) < Math.min(18, row * .32) && p.time >= n.timeMs - 14000 / this.zoom && p.time <= n.timeMs + (n.durationMs || 0) + 14000 / this.zoom;
     });
     if (this.tool === 'erase' && hit) { this.selected = undefined; this.edit(c => { c.notes = c.notes.filter(n => n.id !== hit.id); }); return; }
@@ -306,25 +325,54 @@ export class Studio {
   };
   private place(time: number, lane: number) {
     if (time >= this.song.durationMs) return;
-    const note: Note = { id: uid(), type: this.tool === 'hold' ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
+    const note: Note = { ...defaultLayout(SYMBOLS[lane]), id: uid(), type: this.tool === 'hold' ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
     this.symbol = lane;
     if (note.type === 'hold') note.durationMs = Math.min(60000 / this.chart.timing.bpm, this.song.durationMs - time);
     this.selected = note.id;
     this.edit(c => {
       if (this.tool === 'dual') {
         const chordId = uid(); note.chordId = chordId;
-        const other: Note = { ...note, id: uid(), symbol: SYMBOLS[this.secondSymbol] };
+        const other: Note = { ...clone(note), ...(SYMBOLS[this.secondSymbol]!==note.symbol?defaultLayout(SYMBOLS[this.secondSymbol]):{}), id: uid(), symbol: SYMBOLS[this.secondSymbol] };
         if (other.symbol === note.symbol) { note.side = 'left'; other.side = 'right'; }
         c.notes.push(note, other);
       } else c.notes.push(note);
     });
   }
   private cancel = () => { this.gesture = undefined; };
+  private stagePosition(e: PointerEvent) {
+    const rect=this.stage!.getBoundingClientRect(), inset=Math.min(28,rect.width*.08,rect.height*.08);
+    return { x:Math.max(.08,Math.min(.92,(e.clientX-rect.left-inset)/(rect.width-2*inset))), y:Math.max(.08,Math.min(.92,(e.clientY-rect.top-inset)/(rect.height-2*inset))) };
+  }
+  private stageDown = (e: PointerEvent) => {
+    if(e.button!==0||this.stageDrag)return;
+    const rect=this.stage!.getBoundingClientRect();
+    const near=this.chart.notes.filter(n=>Math.abs(n.timeMs-this.transport.nowMs)<=n.travelTimeMs).find(n=>{const p=targetPoint(n,rect.width,rect.height);return Math.hypot(p.x-e.clientX+rect.left,p.y-e.clientY+rect.top)<30;});
+    if(near)this.selected=near.id;
+    const n=this.chart.notes.find(n=>n.id===this.selected);if(!n)return;
+    e.preventDefault();this.stage!.setPointerCapture(e.pointerId);this.transport.pause();
+    const group=groupNotes(this.chart.notes).find(g=>g.some(item=>item.id===n.id))!;
+    this.stageDrag={pointer:e.pointerId,ids:group.map(item=>item.id),target:this.stagePosition(e)};this.update();
+  };
+  private stageMove = (e: PointerEvent) => {if(this.stageDrag?.pointer===e.pointerId)this.stageDrag.target=this.stagePosition(e);};
+  private stageUp = (e: PointerEvent) => {
+    const drag=this.stageDrag;if(!drag||drag.pointer!==e.pointerId)return;this.stageDrag=undefined;
+    this.edit(c=>{for(const n of c.notes)if(drag.ids.includes(n.id))n.target={...drag.target};});
+  };
+  private stageCancel = () => {this.stageDrag=undefined;};
   private draw() {
     if (!this.canvas || !this.viewport || !this.root) return;
     const dpr = Math.min(devicePixelRatio || 1, 2), w = this.canvas.width / dpr, h = this.canvas.height / dpr, ctx = this.canvas.getContext('2d')!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h); ctx.fillStyle = '#101720'; ctx.fillRect(0,0,w,h);
     const now = this.transport.nowMs;
+    if(this.stage){
+      if(this.stageNotes!==this.chart.notes){this.stageNotes=this.chart.notes;this.stageGroups=groupNotes(this.chart.notes);}
+      const scale=Math.min(devicePixelRatio||1,2),context=this.stage.getContext('2d')!;
+      context.setTransform(scale,0,0,scale,0,0);
+      const groups=this.stageDrag?this.stageGroups.map(group=>Object.assign(group.map(n=>this.stageDrag!.ids.includes(n.id)?{...n,target:this.stageDrag!.target}:n),{dual:group.dual,chordKey:group.chordKey})):this.stageGroups;
+      drawStage(context,this.stage.width/scale,this.stage.height/scale,groups,now,this.selected);
+      if(this.selected){const n=this.chart.notes.find(n=>n.id===this.selected);if(n&&(now<n.timeMs-n.travelTimeMs||now>n.timeMs+(n.durationMs||0)+135)){const p=targetPoint({...n,target:this.stageDrag?.target||n.target},this.stage.width/scale,this.stage.height/scale);context.strokeStyle='#fff';context.fillStyle='#fff';drawSymbol(context,n.symbol,p.x,p.y,15,!!n.chordId);}}
+      const scrub=this.root.querySelector<HTMLInputElement>('#stage-scrub')!;if(document.activeElement!==scrub)scrub.value=String(now);
+    }
     if (this.transport.isPlaying && this.follow && (now / 1000 * this.zoom - this.scroll > w * 0.78 || now / 1000 * this.zoom < this.scroll)) this.viewport.scrollLeft = Math.max(0, now / 1000 * this.zoom - w * 0.25);
     const x = (ms: number) => 45 + ms / 1000 * this.zoom - this.scroll, row = (h - 112) / 4;
     ctx.fillStyle = COLORS[this.symbol] + '06'; ctx.fillRect(40,96+row*this.symbol,w-40,row);
@@ -342,14 +390,15 @@ export class Studio {
     ctx.fillStyle = '#59714c';
     for (let px=45; px<w; px+=3) { const index = Math.floor(((px + this.scroll - 45) / this.zoom * 1000) / this.song.durationMs * this.peaks.length); const amplitude = (this.peaks[index] || 0) * 32; ctx.fillRect(px,61-amplitude,1.5,Math.max(1,amplitude*2)); }
     for (let i=0;i<4;i++) { const y=96+i*row; ctx.strokeStyle='#23303b';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke(); }
-    for (const original of this.chart.notes) {
+    for (const group of this.stageGroups) {
+      const original=group[0];
       if (original.timeMs > end) break;
       const n = this.gesture?.preview?.id === original.id ? this.gesture.preview : original;
       if (n.timeMs + (n.durationMs || 0) < start - 200) continue;
-      const lane=SYMBOLS.indexOf(n.symbol), px=x(n.timeMs), py=96+row*(lane+.5)+(n.side==='left'?-row*.19:n.side==='right'?row*.19:0), selected=n.id===this.selected;
+      const lane=SYMBOLS.indexOf(n.symbol), px=x(n.timeMs), py=96+row*(lane+.5)+(group.dual?0:n.side==='left'?-row*.19:n.side==='right'?row*.19:0), selected=n.id===this.selected;
       ctx.fillStyle=COLORS[lane];ctx.strokeStyle=selected?'#fff':COLORS[lane];
       if(n.type==='hold'){const length=n.durationMs!/1000*this.zoom;ctx.globalAlpha=.22;ctx.fillRect(px,py-8,length,16);ctx.globalAlpha=1;ctx.fillRect(px+length-3,py-10,5,20);}
-      ctx.fillStyle=selected?'#fff':COLORS[lane];ctx.font='25px "Segoe UI",sans-serif';ctx.fillText(GLYPHS[lane],px-10,py);
+      ctx.fillStyle=selected?'#fff':COLORS[lane];drawSymbol(ctx,n.symbol,px,py,11,group.dual);
       if(n.side!=='either'){ctx.font='8px "Segoe UI",sans-serif';ctx.fillText(n.side==='left'?'L':'R',px+13,py);}
       if(selected){ctx.lineWidth=1;ctx.strokeRect(px-15,py-17,30,34);}
     }

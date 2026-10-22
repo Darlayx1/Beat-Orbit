@@ -10,14 +10,14 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,
-    channel: 'chrome',
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] }
+    screenshot: 'only-on-failure'
   },
   projects: [
-    { name: 'desktop-chrome', use: { viewport: { width: 1440, height: 1000 } } },
-    { name: 'mobile-landscape-chrome', use: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } }
+    { name: 'desktop-chrome', use: { channel: 'chrome', viewport: { width: 1440, height: 1000 } } },
+    { name: 'mobile-landscape-chrome', use: { channel: 'chrome', viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } },
+    { name: 'mobile-landscape-webkit', use: { browserName: 'webkit', viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } },
+    { name: 'mobile-portrait-webkit', use: { browserName: 'webkit', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } }
   ],
   webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
     command: process.env.CI ? 'npm run preview -- --port 4173 --strictPort' : 'npm run build && npm run preview -- --port 4173 --strictPort',

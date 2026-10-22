@@ -31,7 +31,7 @@ export function domSetup(){
   const frames:FrameRequestCallback[]=[];
   vi.stubGlobal('requestAnimationFrame',(fn:FrameRequestCallback)=>{frames.push(fn);return frames.length;});
   vi.stubGlobal('cancelAnimationFrame',()=>{});
-  const ctx={setTransform(){},clearRect(){},fillRect(){},strokeRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},fill(){},fillText(){},arc(){},setLineDash(){}};
+  const ctx={setTransform(){},clearRect(){},fillRect(){},strokeRect(){},beginPath(){},closePath(){},moveTo(){},lineTo(){},stroke(){},fill(){},fillText(){},arc(){},setLineDash(){}};
   vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({x:0,y:0,left:0,top:0,width:800,height:350,right:800,bottom:350,toJSON(){}} as DOMRect);
   Object.defineProperty(HTMLElement.prototype,'clientWidth',{configurable:true,get:()=>800});

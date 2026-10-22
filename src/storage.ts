@@ -4,10 +4,20 @@ const DB_NAME = 'beatorbit-local-v1';
 export class ConflictError extends Error { constructor() { super('This chart changed in another tab. Export your work, then reopen the latest version.'); } }
 export class Repository {
   private db?: IDBDatabase;
+  private generation = 0;
+  private transactions = new Set<IDBTransaction>();
+  constructor(private timeoutMs = 8000) {}
   async open() {
+    this.close();
+    const generation = this.generation;
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      let settled = false;
+      const fail = (error: unknown) => { if (settled) return; settled = true; clearTimeout(timer); reject(error); };
+      const timer = setTimeout(() => fail(new Error('Opening local storage timed out. Close other BeatOrbit tabs and retry.')), this.timeoutMs);
+      let req: IDBOpenDBRequest;
+      try { req = indexedDB.open(DB_NAME, 1); } catch (e) { fail(e); return; }
       req.onupgradeneeded = () => {
+        if (settled || generation !== this.generation) { req.transaction?.abort(); return; }
         const db = req.result;
         db.createObjectStore('songs', { keyPath: 'id' });
         db.createObjectStore('audio');
@@ -18,21 +28,37 @@ export class Repository {
         results.createIndex('chartId', 'chartId');
         db.createObjectStore('settings');
       };
-      req.onerror = () => reject(req.error);
-      req.onblocked = () => reject(new Error('Database upgrade blocked. Close other BeatOrbit tabs and reload.'));
-      req.onsuccess = () => { req.result.onversionchange = () => req.result.close(); resolve(req.result); };
+      req.onerror = () => fail(req.error);
+      req.onblocked = () => fail(new Error('Database upgrade blocked. Close other BeatOrbit tabs and retry.'));
+      req.onsuccess = () => {
+        if (settled || generation !== this.generation) { req.result.close(); fail(new Error('Storage attempt superseded.')); return; }
+        settled = true; clearTimeout(timer);
+        req.result.onversionchange = () => req.result.close(); resolve(req.result);
+      };
     });
+    if (generation !== this.generation) { this.db.close(); this.db = undefined; throw new Error('Storage attempt superseded.'); }
   }
   private run<T>(names: string[], mode: IDBTransactionMode, work: (tx: IDBTransaction, set: (value: T) => void, fail: (error: Error) => void) => void): Promise<T> {
     if (!this.db) return Promise.reject(new Error('Local storage is not available.'));
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction(names, mode);
-      let result: T, failure: Error | undefined;
-      tx.oncomplete = () => resolve(result);
+      this.transactions.add(tx);
+      let result: T, failure: Error | undefined, settled = false;
+      const finish = (error?: Error | DOMException | null) => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); this.transactions.delete(tx);
+        if (error) reject(error); else resolve(result);
+      };
+      const timer = setTimeout(() => {
+        failure = new Error('Local storage operation timed out. Check site storage permission and retry.');
+        try { tx.abort(); } catch { /* already inactive */ }
+        finish(failure);
+      }, this.timeoutMs);
+      tx.oncomplete = () => finish();
       tx.onerror = () => { /* abort reports the transaction failure */ };
-      tx.onabort = () => reject(failure || tx.error || new Error('Storage transaction aborted.'));
+      tx.onabort = () => finish(failure || tx.error || new Error('Storage transaction aborted.'));
       try { work(tx, value => { result = value; }, e => { failure = e; tx.abort(); }); }
-      catch (e) { failure = e as Error; tx.abort(); }
+      catch (e) { failure = e as Error; try { tx.abort(); } catch { finish(failure); } }
     });
   }
   private read<T>(store: string, key?: IDBValidKey): Promise<T> {
@@ -43,10 +69,10 @@ export class Repository {
     });
   }
   songs() { return this.read<Song[]>('songs'); }
-  charts() { return this.read<Chart[]>('charts'); }
+  async charts() { return (await this.read<Chart[]>('charts')).map(parseChart); }
   results() { return this.read<Result[]>('results'); }
-  drafts() { return this.read<Draft[]>('drafts'); }
-  draft(chartId: string) { return this.read<Draft | undefined>('drafts', chartId); }
+  async drafts() { return (await this.read<Draft[]>('drafts')).map(d => ({ ...d, chart: parseChart(d.chart) })); }
+  async draft(chartId: string) { const d = await this.read<Draft | undefined>('drafts', chartId); return d ? { ...d, chart: parseChart(d.chart) } : undefined; }
   audio(songId: string) { return this.read<Blob | undefined>('audio', songId); }
   setting(key: string) { return this.read<unknown>('settings', key); }
   async seed(songs: Song[], audio: Blob[], charts: Chart[]) {
@@ -54,8 +80,14 @@ export class Repository {
       const req = tx.objectStore('settings').get('demo-seeded');
       req.onsuccess = () => {
         if (req.result) return;
-        songs.forEach((s, i) => { tx.objectStore('songs').put(s); tx.objectStore('audio').put(audio[i], s.id); });
-        charts.forEach(c => tx.objectStore('charts').put(parseChart(c)));
+        songs.forEach((s, i) => {
+          const existing = tx.objectStore('songs').get(s.id);
+          existing.onsuccess = () => { if (!existing.result) { tx.objectStore('songs').add(s); tx.objectStore('audio').add(audio[i], s.id); } };
+        });
+        charts.forEach(c => {
+          const existing = tx.objectStore('charts').get(c.chartId);
+          existing.onsuccess = () => { if (!existing.result) tx.objectStore('charts').add(parseChart(c)); };
+        });
         tx.objectStore('settings').put(true, 'demo-seeded');
       };
     });
@@ -86,7 +118,7 @@ export class Repository {
       const req = tx.objectStore('charts').get(draft.chartId);
       req.onsuccess = () => {
         if (((req.result as Chart | undefined)?.revision || 0) !== draft.baseRevision) return fail(new ConflictError());
-        tx.objectStore('drafts').put(clone(draft));
+        tx.objectStore('drafts').put({ ...clone(draft), chart: parseChart(draft.chart) });
       };
     });
   }
@@ -112,7 +144,11 @@ export class Repository {
     });
   }
   addResult(result: Result) { return this.run<void>(['results'], 'readwrite', tx => { tx.objectStore('results').add(result); }); }
-  close() { this.db?.close(); }
+  close() {
+    ++this.generation;
+    for (const tx of this.transactions) { try { tx.abort(); } catch { /* already inactive */ } }
+    this.db?.close(); this.db = undefined;
+  }
 }
 export function storageMessage(error: unknown) {
   if (error instanceof DOMException && error.name === 'QuotaExceededError') return 'Local storage is full. Export your chart, then free space in your library.';

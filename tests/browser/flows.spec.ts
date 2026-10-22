@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { makeDemoAudio } from '../../src/audio';
 
 const applicationErrors = new WeakMap<Page, string[]>();
@@ -13,9 +14,76 @@ test.beforeEach(async ({ page }, testInfo) => {
 test.afterEach(async ({ page }) => {
   expect(applicationErrors.get(page) || [], 'No application exceptions or missing production assets').toEqual([]);
 });
+async function requireWebAudio(page: Page) {
+  test.skip(await page.evaluate(() => typeof AudioContext === 'undefined'), 'This browser runtime has no Web Audio API. Full audio flows require WebKit on Linux/macOS or physical Safari; no audio mock is used.');
+}
+
+test('vertical control banks, free stage, pause/resume and orientation',async({page},testInfo)=>{
+  await page.goto('./');
+  await requireWebAudio(page);
+  await page.locator('[data-action="hero-play"]').click();
+  await expect(page.locator('#game-time')).toHaveText('0:04',{timeout:12000});
+  const pads=await page.locator('.game-key').evaluateAll(elements=>elements.map(el=>{
+    const r=el.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};
+  }));
+  for(const bank of [pads.slice(0,4),pads.slice(4)]){
+    expect(bank).toHaveLength(4);
+    for(let i=0;i<4;i++){
+      expect(Math.abs(bank[i].width-bank[i].height)).toBeLessThan(2);
+      expect(Math.abs(bank[i].x-bank[0].x)).toBeLessThan(2);
+      if(i)expect(bank[i].y).toBeGreaterThanOrEqual(bank[i-1].y+bank[i-1].height);
+    }
+  }
+  const stage=await page.locator('#game-canvas').boundingBox();
+  expect(stage!.x).toBeGreaterThan(pads[0].x+pads[0].width);
+  expect(stage!.x+stage!.width).toBeLessThan(pads[4].x);
+  await page.screenshot({path:testInfo.outputPath('controllers.png'),fullPage:true});
+  const intervals=await page.evaluate(()=>new Promise<number[]>(resolve=>{
+    const samples:number[]=[];let previous=performance.now();
+    const tick=(now:number)=>{samples.push(now-previous);previous=now;if(samples.length===60)resolve(samples);else requestAnimationFrame(tick);};requestAnimationFrame(tick);
+  }));
+  await testInfo.attach('frame-times.json',{body:JSON.stringify({intervals,averageMs:intervals.reduce((a,b)=>a+b,0)/intervals.length}),contentType:'application/json'});
+  await page.locator('[data-play="pause"]').click();
+  const time=await page.locator('#game-time').textContent();
+  await page.waitForTimeout(1100);await expect(page.locator('#game-time')).toHaveText(time!);
+  await page.locator('[data-play="resume"]').click();
+  await expect(page.locator('#game-overlay')).toBeHidden();
+  await expect(page.locator('#game-time')).not.toHaveText(time!);
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.locator('#game-canvas')).toBeVisible();
+  expect((await page.locator('#game-canvas').boundingBox())!.width).toBeGreaterThan(100);
+  await page.screenshot({path:testInfo.outputPath('controllers-portrait.png'),fullPage:true});
+});
+
+for(const mode of ['unavailable','blocked','stalled'] as const){
+  test(`boot handles ${mode} storage with an actionable failure`,async({page})=>{
+    await page.addInitScript(mode=>{
+      Object.defineProperty(window,'indexedDB',{configurable:true,value:{open(){
+        if(mode==='unavailable')throw new DOMException('Site storage unavailable','SecurityError');
+        const request={onblocked:null as null|(()=>void)};
+        if(mode==='blocked')setTimeout(()=>request.onblocked?.(),0);
+        return request;
+      }}});
+    },mode);
+    const start=Date.now();await page.goto('./');
+    await expect(page.locator('#reload-app')).toBeVisible({timeout:14500});
+    expect(Date.now()-start).toBeLessThan(15000);
+    await expect(page.locator('.spinner')).toHaveCount(0);
+    await expect(page.locator('.boot-screen')).toContainText('Opening local storage');
+  });
+}
+
+test('first visit seeds all demos within the boot budget and survives refresh',async({page})=>{
+  const start=Date.now();await page.goto('./');
+  await expect(page.locator('.track-row')).toHaveCount(3,{timeout:14500});
+  expect(Date.now()-start).toBeLessThan(15000);
+  await page.reload();await expect(page.locator('.track-row')).toHaveCount(3);
+  await expect(page.locator('.spinner')).toHaveCount(0);
+});
 
 test('import → unsaved playtest → save → Standard Play → reopen',async({page},testInfo)=>{
   await page.goto('./');
+  await requireWebAudio(page);
   await expect(page.locator('.track-row')).toHaveCount(3);
   await page.screenshot({path:testInfo.outputPath('library.png'),fullPage:true});
   await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
@@ -54,6 +122,7 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
 
 test('recovers an unsaved draft after refresh without replacing its saved chart',async({page},testInfo)=>{
   await page.goto('./');
+  await requireWebAudio(page);
   await page.locator('.track-row').first().locator('[data-action="manage-song"]').click();
   await page.locator('[data-manage="edit"]').first().click();
   if(testInfo.project.name.startsWith('mobile'))await page.locator('[data-editor="settings"]').click();

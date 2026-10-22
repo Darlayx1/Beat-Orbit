@@ -40,7 +40,9 @@ jobs:
         run: npm run build
       - name: Confirm preinstalled Chrome runtime
         run: google-chrome --version
-      - name: Desktop and mobile landscape browser tests
+      - name: Install WebKit for Safari engine checks
+        run: npx playwright install --with-deps webkit
+      - name: Chrome and WebKit browser tests
         run: npm run test:e2e
       - name: Keep browser verification evidence
         if: always()
