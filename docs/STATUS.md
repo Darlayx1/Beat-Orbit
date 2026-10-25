@@ -28,7 +28,11 @@ Profil persisten yang ditempatkan di bawah output tes masih gagal; profil diagno
 
 Percobaan deployment pertama commit `1a32f67` pada [run 39791423480](https://github.com/Darlayx1/Beat-Orbit/actions/runs/39791423480) meluluskan audit, 93 tes, dan build, tetapi timeout saat instalasi dependency WebKit. Log memperlihatkan retry mirror `http://azure.archive.ubuntu.com/ubuntu` hingga job dibatalkan; tes browser dan publish belum berjalan. Perbaikan workflow mengganti daftar mirror runner ke HTTPS resmi Ubuntu, membatasi timeout jaringan apt dan durasi instalasi WebKit, tanpa melewati pemeriksaan browser.
 
-Run `39793980932` berhasil memasang WebKit dan meluluskan audit, 93 tes, serta build, tetapi tiga tes browser gagal. Tes permainan WebKit landscape berhenti saat runner tidak memiliki PipeWire/ALSA sink; workflow menyiapkan PulseAudio null sink sebelum browser suite, dan run selanjutnya membuktikan tes permainan landscape WebKit lulus. Run `40182520289` mengungkap bug Studio: kelas `settings-open` ditempel pada elemen `.studio-shell`, sementara selector CSS meminta elemen anak dengan kelas itu. Ini membuat kolom pengaturan tetap tersembunyi di landscape. Selector diperbaiki, dan tes alur portrait kini mencatat tahap terakhir yang dicapai dengan `test.step` serta memastikan kolom nama terlihat sebelum mengisi.
+Run `39793980932` berhasil memasang WebKit dan meluluskan audit, 93 tes, serta build, tetapi tiga tes browser gagal. Tes permainan WebKit landscape berhenti saat runner tidak memiliki PipeWire/ALSA sink; workflow menyiapkan PulseAudio null sink sebelum browser suite, dan run selanjutnya membuktikan tes permainan landscape WebKit lulus.
+
+Diagnosis ulang 25 Oktober 2026: klaim sebelumnya bahwa `settings-open` ditempel pada `.studio-shell` keliru. Kelas tersebut berada pada `#studio-mount`; selector anak yang dipulihkan pada `e0a77c6` sesuai dengan DOM. Run `40184059576` meluluskan 30 dari 32 tes browser, termasuk alur permainan, tetapi dua tes recovery draft landscape masih gagal dan publikasi dilewati.
+
+Artifact trace run tersebut menunjukkan penyebab tes recovery: setelah klik Edit selesai, `isVisible()` untuk tombol Timing langsung menghasilkan `false` ketika Studio belum terpasang. `openStudio()` masih menunggu decode audio. Tes lalu melewati klik Timing dan menunggu kolom yang sengaja disembunyikan pada panel landscape tertutup. Flow impor sudah menunggu timeline dan tidak mengalami kegagalan ini. Helper tes kini menunggu timeline terlihat, memeriksa keadaan panel, membuka hanya jika tertutup, lalu memverifikasi panel dan kolom terlihat. Tes recovery Chrome landscape terfokus lulus secara lokal (4,3 detik) dengan audio asli; hasil suite CI lengkap tetap dicatat oleh workflow deployment sebelum publikasi.
 
 Pada pemeriksaan ini halaman produksi dan aset JS/CSS merespons HTTP 200. Build terisolasi snapshot baseline dengan prefix `/Beat-Orbit/` menghasilkan nama aset yang sama dan hash SHA-256 identik dengan deployment:
 
@@ -98,7 +102,7 @@ Browser suite memverifikasi lifecycle audio dan permainan, tetapi tidak mengukur
 
 - Vite base dapat diatur melalui VITE_BASE_PATH; GitHub Actions menggunakan /Beat-Orbit/.
 - Favicon dan seluruh aset dibangun dengan prefix yang sesuai.
-- Workflow menjalankan audit dependency, 63 tes, build, lalu browser suite sebelum deploy.
+- Workflow menjalankan audit dependency, 93 tes, build, lalu browser suite sebelum deploy.
 - Runner dipatok ke Ubuntu 24.04 dan memakai Chrome yang sudah tersedia.
 - Playwright reports, screenshot, dan trace disimpan sebagai artifact selama tujuh hari.
 - Dependency pengujian diperbarui dari Vitest 3 ke Vitest 5 untuk menyelesaikan temuan audit.

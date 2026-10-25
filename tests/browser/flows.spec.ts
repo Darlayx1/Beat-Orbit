@@ -17,6 +17,18 @@ test.afterEach(async ({ page }) => {
 async function requireWebAudio(page: Page) {
   test.skip(await page.evaluate(() => typeof AudioContext === 'undefined'), 'This browser runtime has no Web Audio API. Full audio flows require WebKit on Linux/macOS or physical Safari; no audio mock is used.');
 }
+async function showChartSettings(page: Page) {
+  // Opening an existing track decodes its audio before Studio mounts. Wait for
+  // that view before checking responsive visibility; isVisible() never waits.
+  await expect(page.locator('#timeline')).toBeVisible();
+  const settings=page.locator('.chart-settings');
+  if(!(await settings.isVisible())){
+    await page.locator('[data-editor="settings"]').click();
+    await expect(page.locator('#studio-mount')).toHaveClass(/settings-open/);
+  }
+  await expect(settings).toBeVisible();
+  await expect(page.locator('#chart-name')).toBeVisible();
+}
 
 test('vertical control banks, free stage, pause/resume and orientation',async({page},testInfo)=>{
   await page.goto('./');
@@ -96,12 +108,8 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
     await expect(page.locator('#timeline')).toBeVisible();
   });
   await test.step('Name the chart and complete Studio Playtest',async()=>{
+    await showChartSettings(page);
     const timingToggle=page.locator('[data-editor="settings"]');
-    if(await timingToggle.isVisible()){
-      await timingToggle.click();
-      await expect(page.locator('#studio-mount')).toHaveClass(/settings-open/);
-    }
-    await expect(page.locator('#chart-name')).toBeVisible();
     await page.locator('#chart-name').fill('Playable browser chart');
     await page.locator('#chart-name').press('Tab');
     if(await timingToggle.isVisible())await timingToggle.click();
@@ -139,9 +147,7 @@ test('recovers an unsaved draft after refresh without replacing its saved chart'
   await requireWebAudio(page);
   await page.locator('.track-row').first().locator('[data-action="manage-song"]').click();
   await page.locator('[data-manage="edit"]').first().click();
-  const timingToggle=page.locator('[data-editor="settings"]');
-  if(await timingToggle.isVisible())await timingToggle.click();
-  await expect(page.locator('#chart-name')).toBeVisible();
+  await showChartSettings(page);
   await page.locator('#chart-name').fill('Recover this draft');
   await page.locator('#chart-name').press('Tab');
   await expect(page.locator('#save-status')).toContainText('Draft saved');
@@ -150,7 +156,7 @@ test('recovers an unsaved draft after refresh without replacing its saved chart'
   await page.locator('[data-action="recover"]').click();
   await page.locator('[data-draft]').first().click();
   await page.locator('[data-choice="restore"]').click();
-  if(await timingToggle.isVisible())await timingToggle.click();
+  await showChartSettings(page);
   await expect(page.locator('#chart-name')).toHaveValue('Recover this draft');
 });
 
