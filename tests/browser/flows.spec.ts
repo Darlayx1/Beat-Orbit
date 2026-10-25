@@ -92,10 +92,11 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
   await page.locator('#confirm-import').click();
   await page.locator('[data-choice="studio"]').click();
   await expect(page.locator('#timeline')).toBeVisible();
-  if(testInfo.project.name.startsWith('mobile'))await page.locator('[data-editor="settings"]').click();
+  const timingToggle=page.locator('[data-editor="settings"]');
+  if(await timingToggle.isVisible())await timingToggle.click();
   await page.locator('#chart-name').fill('Playable browser chart');
   await page.locator('#chart-name').press('Tab');
-  if(testInfo.project.name.startsWith('mobile'))await page.locator('[data-editor="settings"]').click();
+  if(await timingToggle.isVisible())await timingToggle.click();
   // Canvas coordinates use the same viewport transform as the production editor.
   await page.locator('#timeline').click({position:{x:155,y:126}});
   await page.locator('[data-editor="playtest"]').click();
@@ -125,7 +126,8 @@ test('recovers an unsaved draft after refresh without replacing its saved chart'
   await requireWebAudio(page);
   await page.locator('.track-row').first().locator('[data-action="manage-song"]').click();
   await page.locator('[data-manage="edit"]').first().click();
-  if(testInfo.project.name.startsWith('mobile'))await page.locator('[data-editor="settings"]').click();
+  const timingToggle=page.locator('[data-editor="settings"]');
+  if(await timingToggle.isVisible())await timingToggle.click();
   await page.locator('#chart-name').fill('Recover this draft');
   await page.locator('#chart-name').press('Tab');
   await expect(page.locator('#save-status')).toContainText('Draft saved');
@@ -134,7 +136,7 @@ test('recovers an unsaved draft after refresh without replacing its saved chart'
   await page.locator('[data-action="recover"]').click();
   await page.locator('[data-draft]').first().click();
   await page.locator('[data-choice="restore"]').click();
-  if(testInfo.project.name.startsWith('mobile'))await page.locator('[data-editor="settings"]').click();
+  if(await timingToggle.isVisible())await timingToggle.click();
   await expect(page.locator('#chart-name')).toHaveValue('Recover this draft');
 });
 

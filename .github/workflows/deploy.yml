@@ -51,6 +51,14 @@ jobs:
         env:
           PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
         run: npx playwright install --with-deps webkit
+      - name: Start a virtual audio sink for headless WebKit
+        timeout-minutes: 2
+        run: |
+          sudo apt-get install -y --no-install-recommends pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=beatorbit-test
+          pactl set-default-sink beatorbit-test
+          pactl info
       - name: Chrome and WebKit browser tests
         run: npm run test:e2e
       - name: Keep browser verification evidence
