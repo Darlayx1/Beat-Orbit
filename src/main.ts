@@ -69,8 +69,8 @@ function modalBusy(root: HTMLElement, busy: boolean) {
 }
 async function refreshData() { [songs,charts,results,drafts]=await Promise.all([repo.songs(),repo.charts(),repo.results(),repo.drafts()]); }
 function logo() { return '<span class="brand-icon"><svg viewBox="0 0 40 40" fill="none"><ellipse cx="20" cy="20" rx="17" ry="8" transform="rotate(-38 20 20)" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="20" r="4.5" fill="currentColor"/><circle cx="33" cy="10" r="3" fill="currentColor"/></svg></span><span>beat<span class="brand-light">orbit</span><sup>®</sup></span>'; }
-function shell(active: string, content: string) {
-  app.innerHTML=`<div class="app-shell ${active==='studio'?'studio-shell':''} ${active==='play'?'play-shell':''}">
+function shell(active: string, content: string, immersive = false) {
+  app.innerHTML=`<div class="app-shell ${active==='studio'?'studio-shell':''} ${active==='play'?'play-shell':''} ${immersive?'gameplay-shell':''}">
     <aside class="sidebar"><a href="#" class="brand" data-action="library" aria-label="BeatOrbit library">${logo()}</a><div class="workspace-label">YOUR SPACE</div><nav aria-label="Main navigation">
       <button class="nav-item ${active==='library'?'active':''}" data-action="library">${icon('music')}<span>Music Library</span><small>${songs.length}</small></button>
       <button class="nav-item ${active==='studio'?'active':''}" data-action="studio-picker">${icon('studio')}<span>Orbit Studio</span><span class="new-label">CREATE</span></button>
@@ -176,7 +176,7 @@ async function startGame(song: Song, chart: Chart, playtest=false) {
   if(studio)studio.unmount();
   game?.unmount();
   lastChart=clone(chart);lastSong=song;page='play';
-  shell('play','<div id="play-mount"></div>');
+  shell('play','<div id="play-mount"></div>',true);
   game=new PlayView(song,clone(chart),transport,playtest,()=>{
     game?.unmount();game=undefined;
     if(studio){renderStudio();}else{library();}

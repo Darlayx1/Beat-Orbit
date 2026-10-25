@@ -56,9 +56,13 @@ export function groupNotes(notes: VisualNote[]): NoteGroup[] {
   }
   return [...groups.values()].sort((a,b) => a[0].timeMs - b[0].timeMs);
 }
-export function drawStage(c: CanvasRenderingContext2D, width: number, height: number, groups: NoteGroup[], timeMs: number, selected?: string) {
-  c.clearRect(0, 0, width, height); c.fillStyle = '#192b43'; c.fillRect(0,0,width,height);
-  c.strokeStyle = '#385575'; c.lineWidth = 1; c.setLineDash([5,8]); c.strokeRect(12,12,Math.max(0,width-24),Math.max(0,height-24)); c.setLineDash([]);
+export function drawStage(c: CanvasRenderingContext2D, width: number, height: number, groups: NoteGroup[], timeMs: number, selected?: string, framed = true) {
+  c.clearRect(0, 0, width, height);
+  c.lineWidth = 1;
+  if (framed) {
+    c.fillStyle = '#192b43'; c.fillRect(0,0,width,height);
+    c.strokeStyle = '#385575'; c.lineWidth = 1; c.setLineDash([5,8]); c.strokeRect(12,12,Math.max(0,width-24),Math.max(0,height-24)); c.setLineDash([]);
+  }
   const visible = groups.filter(group => group.some(n => n.state !== 'done') && group[0].timeMs - group[0].travelTimeMs <= timeMs && group.some(n => n.timeMs + (n.durationMs || 0) + 135 >= timeMs));
   const chordPoints = new Map<string, Point>();
   for (const group of visible) {

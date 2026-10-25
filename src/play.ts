@@ -32,13 +32,13 @@ export class PlayView {
   }
   async mount(root: HTMLElement) {
     this.root = root;
-    root.innerHTML = `<div class="play-top"><button class="button ghost" data-play="exit">${icon('back')} ${this.playtest ? 'Back to Studio' : 'Song Library'}</button><div class="play-song"><h2>${esc(this.song.title)}</h2><span>${esc(this.song.artist)} <i>·</i> ${esc(this.chart.difficulty)} <i>·</i> ${this.chart.timing.bpm} BPM</span></div><button class="button ghost" data-play="pause">${icon('pause')} Pause</button></div>
+    root.innerHTML = `<div class="game-stage"><div class="play-top"><button class="button ghost" data-play="exit" aria-label="${this.playtest ? 'Back to Studio' : 'Song Library'}">${icon('back')} <span>${this.playtest ? 'Back to Studio' : 'Song Library'}</span></button><div class="play-song"><h2>${esc(this.song.title)}</h2><span>${esc(this.song.artist)} <i>·</i> ${esc(this.chart.difficulty)} <i>·</i> ${this.chart.timing.bpm} BPM</span></div><button class="button ghost" data-play="pause" aria-label="Pause">${icon('pause')} <span>Pause</span></button></div>
       <div class="play-info"><div><span class="eyebrow">SCORE</span><b id="game-score">0000000</b></div><div class="play-mode"><span class="live-dot"></span>${this.playtest ? 'STUDIO PLAYTEST · RESULTS NOT SAVED' : 'STANDARD PLAY'}</div><div class="text-right"><span class="eyebrow">ACCURACY</span><b id="game-accuracy">100.00<span>%</span></b></div></div>
-      <div class="game-stage"><div class="game-controls left-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i}" style="--note-color:${COLORS[i]}" aria-label="Left ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['A','S','D','F'][i]}</small></button>`).join('')}</div>
-      <div class="orbit-stage"><canvas id="game-canvas" aria-label="BeatOrbit performance stage"></canvas><div class="orbit-center"><strong id="combo-number"></strong><span id="combo-label">FEEL THE ORBIT</span><div id="judgement" aria-live="off"></div></div></div>
-      <div class="game-controls right-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i+4}" style="--note-color:${COLORS[i]}" aria-label="Right ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['J','K','L',';'][i]}</small></button>`).join('')}</div></div>
-      <div class="play-bottom"><div><span class="small-muted" id="game-time">0:00</span><div class="game-progress"><div id="game-progress-fill"></div></div><span class="small-muted">${formatTime(this.song.durationMs)}</span></div><p>Tap when notes meet their matching targets. Hold until the trail ends. <span>Left or right. Find your flow.</span></p></div>
-      <div id="game-overlay" class="game-overlay hidden"></div>`;
+      <div class="game-controls left-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i}" style="--note-color:${COLORS[i]}" aria-label="Left ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['A','S','D','F'][i]}</small></button>`).join('')}</div>
+      <div class="orbit-stage"><canvas id="game-canvas" aria-label="BeatOrbit performance stage"></canvas></div><div class="orbit-center"><strong id="combo-number"></strong><span id="combo-label">FEEL THE ORBIT</span><div id="judgement" aria-live="off"></div></div>
+      <div class="game-controls right-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i+4}" style="--note-color:${COLORS[i]}" aria-label="Right ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['J','K','L',';'][i]}</small></button>`).join('')}</div>
+      <div class="play-bottom"><div><span class="small-muted" id="game-time">0:00</span><div class="game-progress"><div id="game-progress-fill"></div></div><span class="small-muted">${formatTime(this.song.durationMs)}</span></div></div>
+      <div id="game-overlay" class="game-overlay hidden"></div></div>`;
     this.canvas = root.querySelector('#game-canvas')!;
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(this.canvas.parentElement!); this.resize();
     root.addEventListener('pointerdown', this.down); root.addEventListener('click', this.click);
@@ -130,7 +130,7 @@ export class PlayView {
     this.root.querySelector<HTMLElement>('#game-progress-fill')!.style.width=Math.min(100,Math.max(0,time/this.song.durationMs*100))+'%';
     const dpr=Math.min(devicePixelRatio||1,2),w=this.canvas.width/dpr,h=this.canvas.height/dpr,c=this.canvas.getContext('2d')!;
     c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
-    drawStage(c,w,h,this.groups,time);
+    drawStage(c,w,h,this.groups,time,undefined,false);
     this.effects=this.effects.filter(effect=>effect.until>real);
     for(const effect of this.effects){const p=targetPoint(effect.note,w,h);c.strokeStyle=COLORS[SYMBOLS.indexOf(effect.note.symbol)];c.globalAlpha=(effect.until-real)/170;c.lineWidth=2;c.beginPath();c.arc(p.x,p.y,25+(1-c.globalAlpha)*12,0,Math.PI*2);c.stroke();c.globalAlpha=1;}
   }

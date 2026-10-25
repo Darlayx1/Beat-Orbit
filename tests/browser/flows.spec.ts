@@ -30,11 +30,19 @@ async function showChartSettings(page: Page) {
   await expect(page.locator('#chart-name')).toBeVisible();
 }
 
-test('vertical control banks, free stage, pause/resume and orientation',async({page},testInfo)=>{
-  await page.goto('./');
-  await requireWebAudio(page);
-  await page.locator('[data-action="hero-play"]').click();
-  await expect(page.locator('#game-time')).toHaveText('0:04',{timeout:12000});
+async function expectImmersivePlay(page: Page, edgeInset = 8) {
+  const viewport=page.viewportSize()!;
+  const surface=await page.locator('.game-stage').boundingBox();
+  expect(surface).toEqual({x:0,y:0,width:viewport.width,height:viewport.height});
+  await expect(page.locator('.app-header')).toBeHidden();
+  const metrics=await page.locator('.game-stage').evaluate(el=>({
+    border:getComputedStyle(el).borderTopWidth,
+    radius:getComputedStyle(el).borderRadius,
+    scrollWidth:document.documentElement.scrollWidth,
+    scrollHeight:document.documentElement.scrollHeight
+  }));
+  expect(metrics.border).toBe('0px');expect(metrics.radius).toBe('0px');
+  expect(metrics.scrollWidth).toBe(viewport.width);expect(metrics.scrollHeight).toBe(viewport.height);
   const pads=await page.locator('.game-key').evaluateAll(elements=>elements.map(el=>{
     const r=el.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};
   }));
@@ -42,13 +50,35 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
     expect(bank).toHaveLength(4);
     for(let i=0;i<4;i++){
       expect(Math.abs(bank[i].width-bank[i].height)).toBeLessThan(2);
+      expect(bank[i].width).toBeGreaterThanOrEqual(44);
       expect(Math.abs(bank[i].x-bank[0].x)).toBeLessThan(2);
+      expect(bank[i].y).toBeGreaterThanOrEqual(0);
+      expect(bank[i].y+bank[i].height).toBeLessThan(viewport.height);
       if(i)expect(bank[i].y).toBeGreaterThanOrEqual(bank[i-1].y+bank[i-1].height);
     }
   }
-  const stage=await page.locator('#game-canvas').boundingBox();
-  expect(stage!.x).toBeGreaterThan(pads[0].x+pads[0].width);
-  expect(stage!.x+stage!.width).toBeLessThan(pads[4].x);
+  expect(pads[0].x).toBeCloseTo(edgeInset,1);
+  expect(viewport.width-pads[4].x-pads[4].width).toBeCloseTo(edgeInset,1);
+  const stage=(await page.locator('#game-canvas').boundingBox())!;
+  expect(stage.x).toBeGreaterThan(pads[0].x+pads[0].width);
+  expect(stage.x+stage.width).toBeLessThan(pads[4].x);
+  expect(stage.width).toBeGreaterThan(100);expect(stage.height).toBeGreaterThan(100);
+  for(const selector of ['.play-top','.play-info','.orbit-center','.play-bottom']){
+    const box=(await page.locator(selector).boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x+box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y+box.height).toBeLessThanOrEqual(viewport.height);
+  }
+  const info=(await page.locator('.play-info').boundingBox())!;
+  expect(info.y+info.height).toBeLessThan(stage.y);
+}
+
+test('vertical control banks, free stage, pause/resume and orientation',async({page},testInfo)=>{
+  await page.goto('./');
+  await requireWebAudio(page);
+  await page.locator('[data-action="hero-play"]').click();
+  await expect(page.locator('#game-time')).toHaveText('0:04',{timeout:12000});
+  await expectImmersivePlay(page);
   await page.screenshot({path:testInfo.outputPath('controllers.png'),fullPage:true});
   const intervals=await page.evaluate(()=>new Promise<number[]>(resolve=>{
     const samples:number[]=[];let previous=performance.now();
@@ -61,10 +91,25 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   await page.locator('[data-play="resume"]').click();
   await expect(page.locator('#game-overlay')).toBeHidden();
   await expect(page.locator('#game-time')).not.toHaveText(time!);
+  for(const viewport of [{width:390,height:844},{width:844,height:390},{width:667,height:375},{width:568,height:320},{width:320,height:568}]){
+    await page.setViewportSize(viewport);
+    await expectImmersivePlay(page);
+  }
+  // Simulate a landscape notch and home indicator, then restore real CSS env values.
+  await page.setViewportSize({width:844,height:390});
+  await page.locator('.game-stage').evaluate(el=>{
+    const style=(el as HTMLElement).style;
+    style.setProperty('--edge-left','47px');style.setProperty('--edge-right','47px');style.setProperty('--edge-top','21px');style.setProperty('--edge-bottom','21px');
+  });
+  await expectImmersivePlay(page,47);
+  await page.locator('.game-stage').evaluate(el=>el.removeAttribute('style'));
   await page.setViewportSize({width:390,height:844});
-  await expect(page.locator('#game-canvas')).toBeVisible();
-  expect((await page.locator('#game-canvas').boundingBox())!.width).toBeGreaterThan(100);
+  await expectImmersivePlay(page);
   await page.screenshot({path:testInfo.outputPath('controllers-portrait.png'),fullPage:true});
+  await page.locator('.play-top [data-play="exit"]').click();
+  await expect(page.locator('.track-row')).toHaveCount(3);
+  await expect(page.locator('.app-header')).toBeVisible();
+  await expect(page.locator('#play-mount')).toHaveCount(0);
 });
 
 for(const mode of ['unavailable','blocked','stalled'] as const){
