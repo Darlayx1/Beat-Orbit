@@ -1,6 +1,7 @@
 import { clone, parseChart, type Chart, type Draft, type Result, type Song } from './domain';
 
 const DB_NAME = 'beatorbit-local-v1';
+type StoredAudio = { data: ArrayBuffer; type: string };
 export class ConflictError extends Error { constructor() { super('This chart changed in another tab. Export your work, then reopen the latest version.'); } }
 export class Repository {
   private db?: IDBDatabase;
@@ -73,16 +74,39 @@ export class Repository {
   results() { return this.read<Result[]>('results'); }
   async drafts() { return (await this.read<Draft[]>('drafts')).map(d => ({ ...d, chart: parseChart(d.chart) })); }
   async draft(chartId: string) { const d = await this.read<Draft | undefined>('drafts', chartId); return d ? { ...d, chart: parseChart(d.chart) } : undefined; }
-  audio(songId: string) { return this.read<Blob | undefined>('audio', songId); }
+  async audio(songId: string): Promise<Blob | undefined> {
+    const audio = await this.read<StoredAudio | Blob | undefined>('audio', songId);
+    // Older libraries store Blobs directly. Read them in place without migration.
+    if (!audio || audio instanceof Blob) return audio;
+    return new Blob([audio.data], { type: audio.type });
+  }
+  private async prepareAudio(blob: Blob): Promise<StoredAudio> {
+    if (!this.db) throw new Error('Local storage is not available.');
+    const generation = this.generation;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // WebKit can stall or reject Blob/File serialization in IndexedDB. Read
+      // bytes before opening a transaction, which must never wait on Blob I/O.
+      const data = await Promise.race([
+        blob.arrayBuffer(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Preparing local audio timed out. Retry this operation.')), this.timeoutMs);
+        })
+      ]);
+      if (generation !== this.generation) throw new Error('Storage attempt superseded.');
+      return { data, type: blob.type };
+    } finally { clearTimeout(timer); }
+  }
   setting(key: string) { return this.read<unknown>('settings', key); }
   async seed(songs: Song[], audio: Blob[], charts: Chart[]) {
+    const prepared = await Promise.all(audio.map(blob => this.prepareAudio(blob)));
     return this.run<void>(['songs', 'audio', 'charts', 'settings'], 'readwrite', tx => {
       const req = tx.objectStore('settings').get('demo-seeded');
       req.onsuccess = () => {
         if (req.result) return;
         songs.forEach((s, i) => {
           const existing = tx.objectStore('songs').get(s.id);
-          existing.onsuccess = () => { if (!existing.result) { tx.objectStore('songs').add(s); tx.objectStore('audio').add(audio[i], s.id); } };
+          existing.onsuccess = () => { if (!existing.result) { tx.objectStore('songs').add(s); tx.objectStore('audio').add(prepared[i], s.id); } };
         });
         charts.forEach(c => {
           const existing = tx.objectStore('charts').get(c.chartId);
@@ -93,11 +117,13 @@ export class Repository {
     });
   }
   async addSong(song: Song, blob: Blob) {
-    return this.run<void>(['songs', 'audio'], 'readwrite', tx => { tx.objectStore('songs').add(song); tx.objectStore('audio').add(blob, song.id); });
+    const audio = await this.prepareAudio(blob);
+    return this.run<void>(['songs', 'audio'], 'readwrite', tx => { tx.objectStore('songs').add(song); tx.objectStore('audio').add(audio, song.id); });
   }
   async updateSong(song: Song) { return this.run<void>(['songs'], 'readwrite', tx => { tx.objectStore('songs').put(song); }); }
   async relinkSong(song: Song, blob: Blob) {
-    return this.run<void>(['songs', 'audio'], 'readwrite', tx => { tx.objectStore('songs').put(song); tx.objectStore('audio').put(blob, song.id); });
+    const audio = await this.prepareAudio(blob);
+    return this.run<void>(['songs', 'audio'], 'readwrite', tx => { tx.objectStore('songs').put(song); tx.objectStore('audio').put(audio, song.id); });
   }
   async saveChart(chart: Chart, expectedRevision: number): Promise<Chart> {
     const value = parseChart(clone(chart));

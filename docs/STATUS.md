@@ -1,3 +1,19 @@
+# Checkpoint lokal: kompatibilitas penyimpanan audio Safari
+
+Tanggal: 25 Oktober 2026 (Asia/Makassar). Perubahan lokal belum dipublikasikan.
+
+- Gejala pengguna: Safari berhenti pada `Saving demos: Local storage operation timed out`. Screenshot membuktikan timeout saat seed, tetapi belum membuktikan penyebab spesifik pada iPhone. Diagnosis sebelumnya pada workspace membuktikan jalur serialisasi Blob/File WebKit dapat gagal sementara ArrayBuffer berhasil.
+- Perbaikan menghindari jalur tersebut: seed demo, impor, dan relink menyimpan byte ArrayBuffer beserta MIME type. Pemutaran tetap menerima Blob; record Blob lama tetap dibaca tanpa reset atau migrasi. Metadata, audio, chart, dan marker seed tetap ditulis secara atomik. Tenggat boot/transaksi tidak dinaikkan.
+- Persiapan byte dilakukan sebelum transaksi, memiliki timeout, dan menolak hasil milik sesi repository yang sudah ditutup.
+- `npm test`: PASS, 99 tes pada 9 file. Regresi mencakup browser yang menolak write Blob, byte/MIME audio, data Blob lama, rollback seed, kegagalan/timeout konversi, dan pembatalan sesi.
+- `npm run build`: PASS. `git diff --check`: PASS.
+- Tes browser penyimpanan baru memakai context ephemeral bawaan, tanpa workaround profil persisten: 4 PASS pada Chrome desktop/mobile dan WebKit portrait/landscape. Ketiga demo tersimpan sebagai byte WAV, library terbuka dalam anggaran boot, dan audio bertahan setelah refresh.
+- Alur browser impor → playtest → save → Standard Play → reopen: 2 PASS pada Chrome desktop/mobile; 2 SKIPPED pada WebKit Windows karena Web Audio tidak tersedia. Tidak ada mock audio.
+- Hambatan verifikasi lingkungan: sandbox memblokir akses browser ke localhost dan memakai lokasi cache browser berbeda. Pengujian berhasil di luar sandbox dengan cache browser yang sudah terpasang; tidak diperlukan perubahan kode untuk hambatan ini.
+- Batas bukti: Safari iPhone fisik dan situs produksi belum diverifikasi dengan perubahan ini. Perbaikan kompatibilitas sudah teruji lokal, tetapi penyelesaian gejala pada perangkat pengguna belum dapat diklaim.
+
+---
+
 # Checkpoint lokal: loading, target bebas, dan kontrol vertikal
 
 Tanggal: 22 Oktober 2026 (Asia/Makassar). Baseline: `4aec42123c277782089e53370918e59aa3fab5aa`.

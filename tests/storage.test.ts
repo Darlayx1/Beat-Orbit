@@ -5,7 +5,7 @@ import { chart, song, tap } from './fixtures';
 
 let repo: Repository;
 beforeEach(async()=>{globalThis.indexedDB=new IDBFactory();repo=new Repository();await repo.open();});
-afterEach(()=>{repo.close();vi.restoreAllMocks();});
+afterEach(()=>{repo.close();vi.restoreAllMocks();vi.useRealTimers();});
 describe('transactional local library',()=>{
   it('seeds idempotently and preserves preexisting song/chart data without a seed marker',async()=>{
     const c=chart();await repo.addSong({...song,title:'My title'},new Blob(['my audio']));
@@ -21,6 +21,74 @@ describe('transactional local library',()=>{
     repo.close();repo=new Repository();await repo.open();
     expect(await repo.songs()).toEqual([song]);
     expect(await(await repo.audio(song.id))!.text()).toBe('original-audio');
+    expect((await repo.audio(song.id))!.type).toBe('audio/wav');
+  });
+  it('seeds, imports, and relinks audio when the browser rejects IndexedDB Blob writes',async()=>{
+    for(const method of ['add','put'] as const){
+      const original=IDBObjectStore.prototype[method];
+      vi.spyOn(IDBObjectStore.prototype,method).mockImplementation(function(this:IDBObjectStore,...args:Parameters<typeof original>){
+        if(this.name==='audio'&&args[0] instanceof Blob)throw new DOMException('Error preparing Blob/File data','UnknownError');
+        return original.apply(this,args);
+      });
+    }
+    const demo=new Blob([new Uint8Array([0,255,128,42])],{type:'audio/wav'});
+    await repo.seed([song],[demo],[chart()]);
+    expect(await(await repo.audio(song.id))!.arrayBuffer()).toEqual(await demo.arrayBuffer());
+    const imported={...song,id:'imported-song'};
+    await repo.addSong(imported,new Blob(['imported'],{type:'audio/mpeg'}));
+    await repo.relinkSong({...imported,title:'Relinked'},new Blob(['replacement'],{type:'audio/ogg'}));
+    repo.close();repo=new Repository();await repo.open();
+    const audio=(await repo.audio(imported.id))!;
+    expect(await audio.text()).toBe('replacement');expect(audio.type).toBe('audio/ogg');
+    expect((await repo.songs()).find(s=>s.id===imported.id)!.title).toBe('Relinked');
+  });
+  it('reads legacy Blob audio without rewriting or upgrading the database',async()=>{
+    const db=await new Promise<IDBDatabase>((resolve,reject)=>{
+      const request=indexedDB.open('beatorbit-local-v1',1);
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+    try{
+      await new Promise<void>((resolve,reject)=>{
+        const tx=db.transaction('audio','readwrite');
+        tx.objectStore('audio').add(new Blob(['legacy-audio'],{type:'audio/wav'}),song.id);
+        tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);
+      });
+    }finally{db.close();}
+    const audio=(await repo.audio(song.id))!;
+    expect(await audio.text()).toBe('legacy-audio');expect(audio.type).toBe('audio/wav');
+    expect(await repo.audio('missing')).toBeUndefined();
+  });
+  it('keeps seed data and the seed marker atomic when audio persistence fails',async()=>{
+    const add=IDBObjectStore.prototype.add;
+    vi.spyOn(IDBObjectStore.prototype,'add').mockImplementation(function(this:IDBObjectStore,...args:Parameters<typeof add>){
+      if(this.name==='audio')throw new DOMException('Quota reached','QuotaExceededError');
+      return add.apply(this,args);
+    });
+    // Exceptions from an IndexedDB request callback abort the transaction;
+    // fake-indexeddb reports AbortError rather than the original quota error.
+    await expect(repo.seed([song],[new Blob(['demo'])],[chart()])).rejects.toThrow();
+    expect(await repo.songs()).toEqual([]);expect(await repo.charts()).toEqual([]);
+    expect(await repo.audio(song.id)).toBeUndefined();expect(await repo.setting('demo-seeded')).toBeUndefined();
+  });
+  it('does not create song metadata if audio preparation fails',async()=>{
+    const blob=new Blob(['audio']);vi.spyOn(blob,'arrayBuffer').mockRejectedValue(new Error('Unreadable audio'));
+    await expect(repo.addSong(song,blob)).rejects.toThrow('Unreadable audio');
+    expect(await repo.songs()).toEqual([]);
+  });
+  it('rejects audio prepared for a closed repository instead of writing into a reopened session',async()=>{
+    const blob=new Blob(['audio']);let complete!:(data:ArrayBuffer)=>void;
+    vi.spyOn(blob,'arrayBuffer').mockImplementation(()=>new Promise(resolve=>{complete=resolve;}));
+    const pending=repo.addSong(song,blob),check=expect(pending).rejects.toThrow(/superseded/);
+    repo.close();await repo.open();complete(new ArrayBuffer(1));await check;
+    expect(await repo.songs()).toEqual([]);
+  });
+  it('bounds stalled audio preparation without starting a storage transaction',async()=>{
+    repo.close();repo=new Repository(20);await repo.open();
+    vi.useFakeTimers();const blob=new Blob(['audio']);
+    vi.spyOn(blob,'arrayBuffer').mockImplementation(()=>new Promise(()=>{}));
+    const check=expect(repo.addSong(song,blob)).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(20);await check;vi.useRealTimers();
+    expect(await repo.songs()).toEqual([]);
   });
   it('edits metadata without rewriting audio or related charts',async()=>{
     await repo.addSong(song,new Blob(['audio']));const saved=await repo.saveChart(chart(),0);

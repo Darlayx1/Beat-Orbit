@@ -54,6 +54,8 @@ Interupsi gameplay membekukan audio dan menawarkan Resume atau Restart. Hold yan
 
 BootSession membatasi seluruh boot hingga 14 detik dan mencatat durasi tiap tahap di console lokal. Abort membatalkan generasi demo dan menutup repository/transaksi. Pembukaan database atau transaksi dibatasi 8 detik; koneksi yang selesai terlambat ditutup. Retry memakai sesi baru dan hasil pemuatan lama tidak dapat mengganti library sesi baru. Seed atomik mempertahankan record yang sudah ada.
 
+Audio baru (demo, impor, dan relink) disimpan sebagai `{ data: ArrayBuffer, type: string }` untuk menghindari serialisasi Blob/File IndexedDB yang dapat gagal di WebKit. Konversi audio dilakukan sebelum transaksi, dibatasi timeout repository, dan menolak hasil sesi yang sudah ditutup. Pembacaan mengembalikan Blob untuk pemutaran dan tetap menerima record Blob lama tanpa migrasi atau reset database.
+
 Generasi PCM demo menghasilkan potongan 16.384 sampel dan menyerahkan kontrol kembali ke event loop. Tidak ada upload untuk diagnosis atau demo.
 
 `stage.ts` dipakai PlayView dan preview Studio. Posisi note dihitung langsung dari waktu audio, titik masuk di tepi, target, dan travel time; renderer tidak mengakumulasi perpindahan per frame. Matching Dual berbagi satu simbol solid sambil mempertahankan kedua state input; Dual berbeda dihubungkan garis. Bentuk simbol memakai path Canvas/SVG.
