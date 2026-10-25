@@ -28,7 +28,7 @@ describe('Studio DOM interactions',()=>{
     click('[data-editor="undo"]');expect(studio!.chart.notes[0].target.x).toBe(.5);
     click('[data-editor="redo"]');await studio!.save();
     const saved=(await repo.charts())[0];expect(saved.notes).toEqual(studio!.chart.notes);
-    expect(saved.notes.every(n=>n.entryAngleDeg===225&&n.travelTimeMs===2200)).toBe(true);
+    expect(saved.notes.every(n=>n.entryAngleDeg===225&&n.travelTimeMs===2000)).toBe(true);
   });
   it('places Tap, Hold, and matching Dual notes through the actual tools',async()=>{
     const {canvas}=await mount();

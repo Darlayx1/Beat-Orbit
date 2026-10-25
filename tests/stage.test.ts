@@ -15,13 +15,18 @@ describe('free target schema and migration', () => {
     expect(parseChart(input)).toEqual(parsed);
     expect(input.notes[0]).not.toHaveProperty('target');
   });
-  it('retains free positions through JSON and command history', () => {
-    const original=chart([tap(2000,{target:{x:.18,y:.81},entryAngleDeg:315,travelTimeMs:2400})]);
-    const doc=new EditorDocument(original);
-    doc.apply(c=>{c.notes[0].target.x=.6;});doc.undo();
-    expect(doc.chart).toEqual(original);doc.redo();
+  it('snaps target positions to the beat grid (1/16 and 1/32 lines) and derives travel time from BPM', () => {
+    const raw=chart([tap(2000,{target:{x:.18,y:.81},entryAngleDeg:315,travelTimeMs:2400})]);
+    const doc=new EditorDocument(raw);
+    expect(doc.chart.notes[0].target).toEqual({x:.2,y:.8});
+    expect(doc.chart.notes[0].travelTimeMs).toBe(2000);
+    const before=clone(doc.chart);
+    doc.apply(c=>{c.notes[0].target.x=.65;});
+    expect(doc.chart.notes[0].target.x).toBe(.65); // 1/32 half-step grid line
+    doc.undo();
+    expect(doc.chart).toEqual(before);doc.redo();
     expect(parseChart(JSON.parse(JSON.stringify(doc.chart)))).toEqual(doc.chart);
-    expect(original.notes[0].target.x).toBe(.18);
+    expect(raw.notes[0].target.x).toBe(.18);
   });
   it.each([{target:{x:NaN,y:.5}},{target:{x:1,y:.5}},{entryAngleDeg:360},{entryAngleDeg:Infinity},{travelTimeMs:0},{travelTimeMs:5001}])('rejects invalid spatial data %j', more=>{
     expect(()=>parseChart(chart([tap(1000,more)]))).toThrow();
@@ -66,11 +71,11 @@ describe('audio-time geometry',()=>{
   });
 });
 describe('pause/resume Holds',()=>{
-  it('rebinds a suspended Hold and resolves exactly once',()=>{
+  it('rebinds a suspended Hold and resolves End Hold upon timed release',()=>{
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
     game.press('old','triangle','left',1000);game.suspendInputs();game.release('old',1200);
-    expect(game.score).toBe(0);game.press('new','triangle','left',1300);game.update(2000);game.release('new',2100);game.update(2200);
-    expect(game.score).toBe(1000);expect(game.counts.perfect).toBe(1);expect(game.complete).toBe(true);
+    expect(game.score).toBe(1000);game.press('new','triangle','left',1300);game.update(1980);game.release('new',2000);game.update(2200);
+    expect(game.score).toBe(2000);expect(game.counts.perfect).toBe(2);expect(game.combo).toBe(2);expect(game.complete).toBe(true);
   });
   it('misses an unclaimed suspended Hold without leaving it stuck',()=>{
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));

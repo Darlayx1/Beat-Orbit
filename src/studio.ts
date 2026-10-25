@@ -1,4 +1,4 @@
-import { DIFFICULTIES, EditorDocument, GLYPHS, SYMBOLS, clone, defaultLayout, exactTime, formatTime, parseChart, snapTime, sortNotes, uid, validatePlayable, type Chart, type Note, type Song } from './domain';
+import { DIFFICULTIES, EditorDocument, GLYPHS, STAGE_GRID, SYMBOLS, bpmTravelTimeMs, clone, defaultLayout, exactTime, formatTime, parseChart, snapTarget, snapTargetCoord, snapTime, sortNotes, uid, validatePlayable, type Chart, type Note, type Song } from './domain';
 import { AudioTransport, waveform } from './audio';
 import { Repository, storageMessage } from './storage';
 import { COLORS, drawStage, drawSymbol, groupNotes, symbolSVG, targetPoint, type NoteGroup } from './stage';
@@ -193,10 +193,10 @@ export class Studio {
       <label>TIME · MS<input id="note-time" type="number" min="0" max="${this.song.durationMs}" step="1" value="${Math.round(n.timeMs)}"></label>
       ${n.type === 'hold' ? `<label>DURATION · MS<input id="note-duration" type="number" min="1" step="1" value="${Math.round(n.durationMs!)}"></label>` : ''}
       <label>INPUT SIDE<select id="note-side">${['either','left','right'].map(s => `<option value="${s}" ${n.side === s ? 'selected' : ''}>${s === 'either' ? 'Either side' : s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select></label>
-      <label>TARGET X<input id="note-target-x" type="number" min="0.08" max="0.92" step="0.01" value="${n.target.x}"></label>
-      <label>TARGET Y<input id="note-target-y" type="number" min="0.08" max="0.92" step="0.01" value="${n.target.y}"></label>
+      <label>TARGET X · GRID<input id="note-target-x" type="number" min="${STAGE_GRID.min}" max="${STAGE_GRID.max}" step="${STAGE_GRID.minorStep}" value="${n.target.x}"></label>
+      <label>TARGET Y · GRID<input id="note-target-y" type="number" min="${STAGE_GRID.min}" max="${STAGE_GRID.max}" step="${STAGE_GRID.minorStep}" value="${n.target.y}"></label>
       <label>ENTRY DIRECTION<select id="note-entry">${Array.from(new Set([0,45,90,135,180,225,270,315,n.entryAngleDeg])).sort((a,b)=>a-b).map(deg=>`<option value="${deg}" ${n.entryAngleDeg===deg?'selected':''}>${deg}° · ${({0:'Right',45:'Bottom right',90:'Bottom',135:'Bottom left',180:'Left',225:'Top left',270:'Top',315:'Top right'} as Record<number,string>)[deg]||'Custom'}</option>`).join('')}</select></label>
-      <label>TRAVEL · MS<input id="note-travel" type="number" min="200" max="5000" step="50" value="${n.travelTimeMs}"></label>
+      <label>TRAVEL · MS (BPM)<input id="note-travel" type="number" min="200" max="5000" step="50" value="${bpmTravelTimeMs(this.chart.timing.bpm)}" readonly></label>
       <div class="inspector-actions"><button class="button subtle" data-editor="duplicate">Duplicate</button><button class="icon-button danger" data-editor="delete" aria-label="Delete selected note">${icon('trash')}</button></div>` : `
       <div class="overview-orbit">◎</div><h3>Build your rhythm.</h3><p class="muted">Choose a tool and symbol, then tap a track to place your first note.</p>
       <div class="chart-stat"><span>Total notes</span><b>${this.chart.notes.length}</b></div><div class="chart-stat"><span>Hold notes</span><b>${this.chart.notes.filter(n => n.type === 'hold').length}</b></div><div class="chart-stat"><span>Chart span</span><b>${formatTime(Math.max(0, ...this.chart.notes.map(n => n.timeMs + (n.durationMs || 0))))}</b></div>`}
@@ -261,7 +261,7 @@ export class Studio {
       const n = c.notes.find(n => n.id === this.selected); if (!n) return;
       if (['note-target-x','note-target-y','note-entry','note-travel'].includes(input.id)) {
         const group=groupNotes(c.notes).find(g=>g.some(item=>item.id===n.id))||[n];
-        for(const item of group){if(input.id==='note-target-x')item.target.x=Number(value);if(input.id==='note-target-y')item.target.y=Number(value);if(input.id==='note-entry')item.entryAngleDeg=Number(value);if(input.id==='note-travel')item.travelTimeMs=Number(value);}
+        for(const item of group){if(input.id==='note-target-x')item.target.x=snapTargetCoord(Number(value));if(input.id==='note-target-y')item.target.y=snapTargetCoord(Number(value));if(input.id==='note-entry')item.entryAngleDeg=Number(value);if(input.id==='note-travel')item.travelTimeMs=bpmTravelTimeMs(c.timing.bpm);}
       }
       if (input.id === 'note-time') n.timeMs = Number(value);
       if (input.id === 'note-duration') n.durationMs = Number(value);
@@ -325,14 +325,15 @@ export class Studio {
   };
   private place(time: number, lane: number) {
     if (time >= this.song.durationMs) return;
-    const note: Note = { ...defaultLayout(SYMBOLS[lane]), id: uid(), type: this.tool === 'hold' ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
+    const stepIndex = this.chart.notes.length;
+    const note: Note = { ...defaultLayout(SYMBOLS[lane], this.chart.timing.bpm, stepIndex, this.snap), id: uid(), type: this.tool === 'hold' ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
     this.symbol = lane;
     if (note.type === 'hold') note.durationMs = Math.min(60000 / this.chart.timing.bpm, this.song.durationMs - time);
     this.selected = note.id;
     this.edit(c => {
       if (this.tool === 'dual') {
         const chordId = uid(); note.chordId = chordId;
-        const other: Note = { ...clone(note), ...(SYMBOLS[this.secondSymbol]!==note.symbol?defaultLayout(SYMBOLS[this.secondSymbol]):{}), id: uid(), symbol: SYMBOLS[this.secondSymbol] };
+        const other: Note = { ...clone(note), ...(SYMBOLS[this.secondSymbol]!==note.symbol?defaultLayout(SYMBOLS[this.secondSymbol], this.chart.timing.bpm, stepIndex, this.snap):{}), id: uid(), symbol: SYMBOLS[this.secondSymbol] };
         if (other.symbol === note.symbol) { note.side = 'left'; other.side = 'right'; }
         c.notes.push(note, other);
       } else c.notes.push(note);
@@ -341,7 +342,7 @@ export class Studio {
   private cancel = () => { this.gesture = undefined; };
   private stagePosition(e: PointerEvent) {
     const rect=this.stage!.getBoundingClientRect(), inset=Math.min(28,rect.width*.08,rect.height*.08);
-    return { x:Math.max(.08,Math.min(.92,(e.clientX-rect.left-inset)/(rect.width-2*inset))), y:Math.max(.08,Math.min(.92,(e.clientY-rect.top-inset)/(rect.height-2*inset))) };
+    return snapTarget({ x:Math.max(.08,Math.min(.92,(e.clientX-rect.left-inset)/(rect.width-2*inset))), y:Math.max(.08,Math.min(.92,(e.clientY-rect.top-inset)/(rect.height-2*inset))) });
   }
   private stageDown = (e: PointerEvent) => {
     if(e.button!==0||this.stageDrag)return;

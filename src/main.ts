@@ -355,10 +355,9 @@ async function init() {
         const chart=newChart(song,i===1?'hard':i===2?'easy':'normal');chart.name=['Lunar flow','Circuit run','Golden hour'][i];chart.chartId='chart-'+config.id;chart.revision=1;
         const beat=60000/config.bpm;
         for(let n=0,time=beat*8;time<song.durationMs-4000;n++,time+=beat*(i===2?2:1)){
-          const points=[{x:.2,y:.25},{x:.75,y:.25},{x:.5,y:.5},{x:.25,y:.75},{x:.8,y:.7}];
-          const layout={...defaultLayout(SYMBOLS[n%4]),target:points[n%points.length],entryAngleDeg:n%8*45};
+          const layout={...defaultLayout(SYMBOLS[n%4],config.bpm,n,16),entryAngleDeg:n%8*45};
           if(n%12===8){const chord=uid();chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'left',timeMs:time,chordId:chord},{...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'right',timeMs:time,chordId:chord});}
-          else chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat*.7}:{})});
+          else chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat}:{})});
         }
         demoSongs.push(song);audio.push(blob);demoCharts.push(chart);
         await new Promise(resolve=>setTimeout(resolve,0));

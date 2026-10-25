@@ -1,10 +1,18 @@
-import { GLYPHS, SYMBOLS, formatTime, type Chart, type Result, type Song, uid } from './domain';
+import { GLYPHS, SYMBOLS, type Chart, type Result, type Song, uid } from './domain';
 import { AudioTransport } from './audio';
 import { Gameplay, WINDOWS, type Judgement } from './gameplay';
 import { esc, icon } from './ui';
-import { COLORS, drawStage, groupNotes, symbolSVG, targetPoint, type NoteGroup } from './stage';
+import { COLORS, drawStage, drawSymbol, groupNotes, symbolSVG, targetPoint, type NoteGroup } from './stage';
 
 const KEYS = ['KeyA','KeyS','KeyD','KeyF','KeyJ','KeyK','KeyL','Semicolon'];
+const JUDGE_COLORS: Record<Judgement, string> = {
+  perfect: '#00d49e',
+  great: '#4e84f4',
+  good: '#ffd166',
+  miss: '#ff4d4d'
+};
+type HitEffect = { note: Chart['notes'][number]; judge: Judgement; combo: number; start: number; until: number };
+
 export class PlayView {
   private game: Gameplay;
   private root?: HTMLElement;
@@ -19,25 +27,25 @@ export class PlayView {
   private pausedTime = 0;
   private resuming = false;
   private done = false;
-  private judgement = '';
-  private judgeUntil = 0;
   private groups: NoteGroup[] = [];
-  private effects: { note: Chart['notes'][number]; until: number }[] = [];
+  private effects: HitEffect[] = [];
   constructor(private song: Song, private chart: Chart, private transport: AudioTransport, private playtest: boolean, private onExit: () => void, private onFinish: (result: Result) => void) {
     this.game = new Gameplay(chart); this.groups = groupNotes(this.game.notes);
+    this.bindJudge();
+  }
+  private bindJudge() {
     this.game.onJudge = (judge, note) => {
-      this.judgement = judge.toUpperCase(); this.judgeUntil = performance.now() + 550;
-      this.effects.push({ note, until: performance.now() + 170 });
+      const now = performance.now();
+      this.effects.push({ note, judge, combo: this.game.combo, start: now, until: now + 620 });
     };
   }
   async mount(root: HTMLElement) {
     this.root = root;
-    root.innerHTML = `<div class="game-stage"><div class="play-top"><button class="button ghost" data-play="exit" aria-label="${this.playtest ? 'Back to Studio' : 'Song Library'}">${icon('back')} <span>${this.playtest ? 'Back to Studio' : 'Song Library'}</span></button><div class="play-song"><h2>${esc(this.song.title)}</h2><span>${esc(this.song.artist)} <i>·</i> ${esc(this.chart.difficulty)} <i>·</i> ${this.chart.timing.bpm} BPM</span></div><button class="button ghost" data-play="pause" aria-label="Pause">${icon('pause')} <span>Pause</span></button></div>
-      <div class="play-info"><div><span class="eyebrow">SCORE</span><b id="game-score">0000000</b></div><div class="play-mode"><span class="live-dot"></span>${this.playtest ? 'STUDIO PLAYTEST · RESULTS NOT SAVED' : 'STANDARD PLAY'}</div><div class="text-right"><span class="eyebrow">ACCURACY</span><b id="game-accuracy">100.00<span>%</span></b></div></div>
-      <div class="game-controls left-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i}" style="--note-color:${COLORS[i]}" aria-label="Left ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['A','S','D','F'][i]}</small></button>`).join('')}</div>
-      <div class="orbit-stage"><canvas id="game-canvas" aria-label="BeatOrbit performance stage"></canvas></div><div class="orbit-center"><strong id="combo-number"></strong><span id="combo-label">FEEL THE ORBIT</span><div id="judgement" aria-live="off"></div></div>
-      <div class="game-controls right-controls">${GLYPHS.map((g,i) => `<button class="game-key key-${i}" data-pad="${i+4}" style="--note-color:${COLORS[i]}" aria-label="Right ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['J','K','L',';'][i]}</small></button>`).join('')}</div>
-      <div class="play-bottom"><div><span class="small-muted" id="game-time">0:00</span><div class="game-progress"><div id="game-progress-fill"></div></div><span class="small-muted">${formatTime(this.song.durationMs)}</span></div></div>
+    root.innerHTML = `<div class="game-stage"><div class="play-top"><button class="button ghost" data-play="pause" aria-label="Pause">${icon('pause')} <span>Pause</span></button><div class="play-song"><h2>${esc(this.song.title)}</h2><span class="play-difficulty diff-${esc(this.chart.difficulty)}">${esc(this.chart.difficulty)}</span></div><div class="play-score"><span class="eyebrow">SCORE</span><b id="game-score">0000000</b></div></div>
+      <div class="game-controls left-controls">${GLYPHS.map((_,i) => `<button class="game-key key-${i}" data-pad="${i}" style="--note-color:${COLORS[i]}" aria-label="Left ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['A','S','D','F'][i]}</small></button>`).join('')}</div>
+      <div class="orbit-stage"><canvas id="game-canvas" aria-label="BeatOrbit performance stage"></canvas></div><div class="orbit-center"><strong id="combo-number"></strong></div>
+      <div class="game-controls right-controls">${GLYPHS.map((_,i) => `<button class="game-key key-${i}" data-pad="${i+4}" style="--note-color:${COLORS[i]}" aria-label="Right ${SYMBOLS[i]}">${symbolSVG(SYMBOLS[i])}<small>${['J','K','L',';'][i]}</small></button>`).join('')}</div>
+      <div class="play-bottom"><div class="grade-progress-row"><span class="grade-badge grade-d" id="game-grade">D</span><div class="game-progress"><div id="game-progress-fill"></div><i class="grade-tick" style="left:50%"></i><i class="grade-tick" style="left:75%"></i><i class="grade-tick" style="left:90%"></i><i class="grade-tick" style="left:98%"></i></div><b id="game-accuracy">0.00<span>%</span></b></div></div>
       <div id="game-overlay" class="game-overlay hidden"></div></div>`;
     this.canvas = root.querySelector('#game-canvas')!;
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(this.canvas.parentElement!); this.resize();
@@ -94,7 +102,7 @@ export class PlayView {
       }).catch(e=>{this.paused=false;this.pause(e.message);}).finally(()=>{this.resuming=false;});
     }
     if(action==='restart') {
-      this.game = new Gameplay(this.chart); this.groups = groupNotes(this.game.notes); this.effects = []; this.game.onJudge = (judge, note) => { this.judgement=judge.toUpperCase();this.judgeUntil=performance.now()+550;this.effects.push({note,until:performance.now()+170}); };
+      this.game = new Gameplay(this.chart); this.groups = groupNotes(this.game.notes); this.effects = []; this.bindJudge();
       this.root!.querySelector('#game-overlay')!.classList.add('hidden');
       void this.start().catch(e => this.pause(e.message));
     }
@@ -120,18 +128,72 @@ export class PlayView {
       this.onFinish({id:uid(),chartId:this.chart.chartId,revision:this.chart.revision,title:this.song.title,score:this.game.score,accuracy:this.game.accuracy,maxCombo:this.game.maxCombo,...this.game.counts,createdAt:new Date().toISOString()});return;
     }
     this.root.querySelector('#game-score')!.textContent=String(this.game.score).padStart(7,'0');
-    const resolved = this.game.counts.perfect + this.game.counts.great + this.game.counts.good + this.game.counts.miss;
-    this.root.querySelector('#game-accuracy')!.innerHTML=(resolved ? this.game.score / (resolved * 1000) * 100 : 100).toFixed(2)+'<span>%</span>';
-    this.root.querySelector('#combo-number')!.textContent=this.started?(this.game.combo>0?String(this.game.combo):''):String(Math.ceil(Math.max(0,this.countdown-real)/1000)||'GO');
-    this.root.querySelector('#combo-label')!.textContent=this.started?(this.game.combo>0?'COMBO':'FEEL THE ORBIT'):'GET READY';
-    const judgement=this.root.querySelector<HTMLElement>('#judgement')!;
-    judgement.textContent=real<this.judgeUntil?this.judgement:'';judgement.className=this.judgement.toLowerCase();
-    this.root.querySelector('#game-time')!.textContent=formatTime(Math.max(0,time));
-    this.root.querySelector<HTMLElement>('#game-progress-fill')!.style.width=Math.min(100,Math.max(0,time/this.song.durationMs*100))+'%';
+    const pct = Math.min(100, Math.max(0, this.game.accuracy));
+    const grade = pct >= 98 ? 'S' : pct >= 90 ? 'A' : pct >= 75 ? 'B' : pct >= 50 ? 'C' : 'D';
+    const gradeEl = this.root.querySelector<HTMLElement>('#game-grade')!;
+    gradeEl.textContent = grade;
+    gradeEl.className = 'grade-badge grade-' + grade.toLowerCase();
+    this.root.querySelector('#game-accuracy')!.innerHTML=pct.toFixed(2)+'<span>%</span>';
+    this.root.querySelector<HTMLElement>('#game-progress-fill')!.style.width=pct+'%';
+    this.root.querySelector('#combo-number')!.textContent=this.started?'':String(Math.ceil(Math.max(0,this.countdown-real)/1000)||'GO');
     const dpr=Math.min(devicePixelRatio||1,2),w=this.canvas.width/dpr,h=this.canvas.height/dpr,c=this.canvas.getContext('2d')!;
     c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
     drawStage(c,w,h,this.groups,time,undefined,false);
     this.effects=this.effects.filter(effect=>effect.until>real);
-    for(const effect of this.effects){const p=targetPoint(effect.note,w,h);c.strokeStyle=COLORS[SYMBOLS.indexOf(effect.note.symbol)];c.globalAlpha=(effect.until-real)/170;c.lineWidth=2;c.beginPath();c.arc(p.x,p.y,25+(1-c.globalAlpha)*12,0,Math.PI*2);c.stroke();c.globalAlpha=1;}
+    for(const effect of this.effects){
+      const p=targetPoint(effect.note,w,h);
+      const color=COLORS[SYMBOLS.indexOf(effect.note.symbol)];
+      const judgeColor=JUDGE_COLORS[effect.judge];
+      const total=effect.until-effect.start;
+      const progress=Math.max(0,Math.min(1,(real-effect.start)/total));
+
+      // Hit burst & shockwave rings
+      if (effect.judge !== 'miss' && progress < 0.55) {
+        const burst = progress / 0.55;
+        c.strokeStyle = color;
+        c.globalAlpha = (1 - burst) * 0.9;
+        c.lineWidth = 3 * (1 - burst * 0.5);
+        c.beginPath(); c.arc(p.x, p.y, 22 + burst * 28, 0, Math.PI * 2); c.stroke();
+
+        c.strokeStyle = '#ffffff';
+        c.globalAlpha = (1 - burst) * 0.75;
+        c.lineWidth = 1.8;
+        c.beginPath(); c.arc(p.x, p.y, 16 + burst * 16, 0, Math.PI * 2); c.stroke();
+
+        // Symbol flash pop
+        c.strokeStyle = '#ffffff';
+        c.fillStyle = color;
+        c.globalAlpha = (1 - burst) * 0.65;
+        drawSymbol(c, effect.note.symbol, p.x, p.y, 11 + burst * 8, true);
+
+        // Radial spark particles
+        c.strokeStyle = judgeColor;
+        c.lineWidth = 2;
+        for (let k = 0; k < 8; k++) {
+          const angle = (k * Math.PI) / 4 + burst * 0.25;
+          const r1 = 20 + burst * 14, r2 = 27 + burst * 24;
+          c.beginPath();
+          c.moveTo(p.x + Math.cos(angle) * r1, p.y + Math.sin(angle) * r1);
+          c.lineTo(p.x + Math.cos(angle) * r2, p.y + Math.sin(angle) * r2);
+          c.stroke();
+        }
+      }
+
+      // Temporary floating Combo & Judgement feedback right above target
+      const textAlpha = progress < 0.65 ? 1 : (1 - progress) / 0.35;
+      const floatOffset = progress * 16;
+      const baseY = p.y > 62 ? p.y - 34 - floatOffset : p.y + 44 - floatOffset * 0.4;
+      c.globalAlpha = Math.max(0, Math.min(1, textAlpha));
+      c.textAlign = 'center';
+      if (effect.combo > 0) {
+        c.font = '800 15px "Barlow Condensed", "Arial Narrow", sans-serif';
+        c.fillStyle = '#ffffff';
+        c.fillText(`${effect.combo} COMBO`, p.x, baseY - 13);
+      }
+      c.font = '700 11px "DM Sans", "Segoe UI", sans-serif';
+      c.fillStyle = judgeColor;
+      c.fillText(effect.judge.toUpperCase(), p.x, baseY);
+      c.globalAlpha = 1;
+    }
   }
 }

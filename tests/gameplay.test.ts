@@ -26,28 +26,33 @@ describe('shared judgement and scoring engine', () => {
     game.press('one','triangle','left',1000);game.press('one','circle','right',1000);
     expect(game.counts.perfect).toBe(1);
   });
-  it('locks a Hold to its input and side, and scores completion once', () => {
+  it('locks a Hold to its input and side, and scores both Head press and End Hold release', () => {
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000}),tap(1500,{symbol:'circle'})]));
     game.press('one','triangle','left',1000);
-    expect(game.score).toBe(0);
+    expect(game.score).toBe(1000);expect(game.combo).toBe(1);
     expect(game.press('two','circle','left',1500)).toBe(false);
     expect(game.press('three','circle','right',1500)).toBe(true);
-    game.update(2000);game.release('one',2100);game.update(3000);
-    expect(game.counts.perfect).toBe(2);expect(game.score).toBe(2000);
+    game.update(2000);game.release('one',2020);game.update(3000);
+    expect(game.counts.perfect).toBe(3);expect(game.score).toBe(3000);expect(game.combo).toBe(3);expect(game.accuracy).toBe(100);
   });
-  it('fails early releases and pointer cancellations without stuck inputs', () => {
+  it('fails early releases, late over-holds, and pointer cancellations without stuck inputs', () => {
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000}),tap(2500)]));
     game.press('one','triangle','left',1000);game.release('one',1500);
-    expect(game.counts.miss).toBe(1);
-    game.press('one','triangle','left',2500);expect(game.counts.perfect).toBe(1);
+    expect(game.counts.perfect).toBe(1);expect(game.counts.miss).toBe(1);expect(game.combo).toBe(0);
+    game.press('one','triangle','left',2500);expect(game.counts.perfect).toBe(2);expect(game.combo).toBe(1);
     const other=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
     other.press('one','triangle','left',1000);other.cancelInputs(1800);other.update(3000);
     expect(other.counts.miss).toBe(1);
+    const overheld=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
+    overheld.press('one','triangle','left',1000);overheld.update(2200);
+    expect(overheld.counts.perfect).toBe(1);expect(overheld.counts.miss).toBe(1);expect(overheld.combo).toBe(0);
   });
-  it('retains the worse head judgement through Hold completion', () => {
+  it('judges Head press and End Hold release independently and advances Full Combo percentage on Perfect and Great', () => {
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
-    game.press('one','triangle','right',1080);game.update(2000);
-    expect(game.counts.great).toBe(1);expect(game.score).toBe(700);
+    game.press('one','triangle','right',1080);
+    expect(game.counts.great).toBe(1);expect(game.score).toBe(700);expect(game.combo).toBe(1);expect(game.accuracy).toBe(50);
+    game.release('one',2000);
+    expect(game.counts.perfect).toBe(1);expect(game.score).toBe(1700);expect(game.combo).toBe(2);expect(game.accuracy).toBe(100);
   });
   it('breaks combo on miss and preserves the maximum', () => {
     const game=new Gameplay(chart([tap(1000),tap(2000),tap(3000)]));

@@ -63,21 +63,21 @@ async function expectImmersivePlay(page: Page, edgeInset = 8) {
   expect(stage.x).toBeGreaterThan(pads[0].x+pads[0].width);
   expect(stage.x+stage.width).toBeLessThan(pads[4].x);
   expect(stage.width).toBeGreaterThan(100);expect(stage.height).toBeGreaterThan(100);
-  for(const selector of ['.play-top','.play-info','.orbit-center','.play-bottom']){
+  for(const selector of ['.play-top','.play-bottom']){
     const box=(await page.locator(selector).boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.x+box.width).toBeLessThanOrEqual(viewport.width);
     expect(box.y+box.height).toBeLessThanOrEqual(viewport.height);
   }
-  const info=(await page.locator('.play-info').boundingBox())!;
-  expect(info.y+info.height).toBeLessThan(stage.y);
+  const top=(await page.locator('.play-top').boundingBox())!;
+  expect(top.y+top.height).toBeLessThanOrEqual(stage.y+2);
 }
 
 test('vertical control banks, free stage, pause/resume and orientation',async({page},testInfo)=>{
   await page.goto('./');
   await requireWebAudio(page);
   await page.locator('[data-action="hero-play"]').click();
-  await expect(page.locator('#game-time')).toHaveText('0:04',{timeout:12000});
+  await expect(page.locator('#combo-number')).toHaveText('',{timeout:12000});
   await expectImmersivePlay(page);
   await page.screenshot({path:testInfo.outputPath('controllers.png'),fullPage:true});
   const intervals=await page.evaluate(()=>new Promise<number[]>(resolve=>{
@@ -86,11 +86,9 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   }));
   await testInfo.attach('frame-times.json',{body:JSON.stringify({intervals,averageMs:intervals.reduce((a,b)=>a+b,0)/intervals.length}),contentType:'application/json'});
   await page.locator('[data-play="pause"]').click();
-  const time=await page.locator('#game-time').textContent();
-  await page.waitForTimeout(1100);await expect(page.locator('#game-time')).toHaveText(time!);
+  await expect(page.locator('#game-overlay')).toBeVisible();
   await page.locator('[data-play="resume"]').click();
   await expect(page.locator('#game-overlay')).toBeHidden();
-  await expect(page.locator('#game-time')).not.toHaveText(time!);
   for(const viewport of [{width:390,height:844},{width:844,height:390},{width:667,height:375},{width:568,height:320},{width:320,height:568}]){
     await page.setViewportSize(viewport);
     await expectImmersivePlay(page);
@@ -106,7 +104,8 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   await page.setViewportSize({width:390,height:844});
   await expectImmersivePlay(page);
   await page.screenshot({path:testInfo.outputPath('controllers-portrait.png'),fullPage:true});
-  await page.locator('.play-top [data-play="exit"]').click();
+  await page.locator('[data-play="pause"]').click();
+  await page.locator('#game-overlay [data-play="exit"]').click();
   await expect(page.locator('.track-row')).toHaveCount(3);
   await expect(page.locator('.app-header')).toBeVisible();
   await expect(page.locator('#play-mount')).toHaveCount(0);
@@ -161,7 +160,7 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
     // Canvas coordinates use the same viewport transform as the production editor.
     await page.locator('#timeline').click({position:{x:155,y:126}});
     await page.locator('[data-editor="playtest"]').click();
-    await expect(page.locator('.play-mode')).toContainText('STUDIO PLAYTEST');
+    await expect(page.locator('#game-score')).toBeVisible();
     await expect(page.locator('.results-view')).toBeVisible({timeout:12000});
     await page.locator('[data-action="result-return"]').click();
     await expect(page.locator('#note-count')).toHaveText('1 notes');

@@ -15,10 +15,34 @@ export const sortNotes = (notes: Note[]) => notes.sort((a, b) => a.timeMs - b.ti
 export const formatTime = (ms: number) => Math.floor(Math.max(0, ms) / 60000) + ':' + String(Math.floor(Math.max(0, ms) / 1000) % 60).padStart(2, '0');
 export const exactTime = (ms: number) => formatTime(ms) + '.' + String(Math.round(Math.max(0, ms) % 1000)).padStart(3, '0');
 // Angles point from the target toward the entry edge: 0 right, 90 bottom.
-export function defaultLayout(symbol: SymbolName): Pick<Note, 'target' | 'entryAngleDeg' | 'travelTimeMs'> {
+export const STAGE_GRID = { min: 0.1, max: 0.9, majorStep: 0.1, minorStep: 0.05 } as const;
+export function snapTargetCoord(value: number, step: number = STAGE_GRID.minorStep): number {
+  const clamped = Math.max(STAGE_GRID.min, Math.min(STAGE_GRID.max, value));
+  return Number((Math.round(clamped / step) * step).toFixed(4));
+}
+export function snapTarget(target: { x: number; y: number }, step: number = STAGE_GRID.minorStep): { x: number; y: number } {
+  return { x: snapTargetCoord(target.x, step), y: snapTargetCoord(target.y, step) };
+}
+export function bpmTravelTimeMs(bpm: number): number {
+  return Math.round(Math.max(200, Math.min(5000, 240000 / (Number.isFinite(bpm) && bpm > 0 ? bpm : 120))));
+}
+export function gridStepForSubdivision(subdivision: number): number {
+  if (subdivision >= 32) return STAGE_GRID.minorStep; // 1/32 -> 1/2 grid unit (0.05)
+  if (subdivision >= 16) return STAGE_GRID.majorStep; // 1/16 -> 1 grid unit (0.10)
+  if (subdivision >= 8) return STAGE_GRID.majorStep * 2; // 1/8 -> 2 grid units (0.20)
+  return STAGE_GRID.majorStep * 2;
+}
+export function defaultLayout(symbol: SymbolName, bpm = 120, stepIndex = 0, subdivision = 16): Pick<Note, 'target' | 'entryAngleDeg' | 'travelTimeMs'> {
   const index = SYMBOLS.indexOf(symbol);
-  const targets = [{ x: .5, y: .2 }, { x: .8, y: .5 }, { x: .5, y: .8 }, { x: .2, y: .5 }];
-  return { target: { ...targets[index] }, entryAngleDeg: (270 + index * 90) % 360, travelTimeMs: 1600 };
+  const rowY = [0.2, 0.4, 0.6, 0.8][index];
+  const step = gridStepForSubdivision(subdivision);
+  // Step back and forth cleanly along the horizontal grid line (0.20 to 0.80)
+  const span = 0.6;
+  const rawOffset = (stepIndex * step) % (span * 2);
+  const offset = rawOffset <= span ? rawOffset : span * 2 - rawOffset;
+  const x = stepIndex === 0 ? 0.5 : snapTargetCoord(0.2 + offset, STAGE_GRID.minorStep);
+  const angles = [270, 0, 90, 180];
+  return { target: { x, y: rowY }, entryAngleDeg: angles[index], travelTimeMs: bpmTravelTimeMs(bpm) };
 }
 export function newChart(song: Song, difficulty: Chart['difficulty'] = 'normal'): Chart {
   return { schemaVersion: 2, chartId: uid(), songId: song.id, name: 'Untitled chart', difficulty, rulesetId: 'beatorbit-standard-v1', revision: 0, timing: { bpm: song.bpm || 120, offsetMs: 0, timeSignature: { numerator: 4, denominator: 4 } }, audioRef: { fileName: song.fileName, durationMs: song.durationMs }, notes: [], updatedAt: new Date().toISOString() };
@@ -44,12 +68,13 @@ export function parseChart(value: unknown): Chart {
     if (!n || !text(n.id) || ids.has(n.id) || !SYMBOLS.includes(n.symbol) || !['tap', 'hold'].includes(n.type) || !['either', 'left', 'right'].includes(n.side) || !finite(n.timeMs) || n.timeMs < 0 || n.timeMs > LIMITS.durationMs) throw new Error('Invalid note or duplicate note ID.');
     if (n.type === 'hold' && (!finite(n.durationMs) || n.durationMs <= 0 || n.durationMs > LIMITS.durationMs)) throw new Error('Hold duration must be positive.');
     if (n.chordId !== undefined && !text(n.chordId)) throw new Error('Invalid chord ID.');
-    const layout = c.schemaVersion === 1 ? { ...defaultLayout(n.symbol), ...(n.target !== undefined ? { target: n.target } : {}), ...(n.entryAngleDeg !== undefined ? { entryAngleDeg: n.entryAngleDeg } : {}), ...(n.travelTimeMs !== undefined ? { travelTimeMs: n.travelTimeMs } : {}) } : n;
+    const layout = c.schemaVersion === 1 ? { ...defaultLayout(n.symbol, c.timing.bpm), ...(n.target !== undefined ? { target: n.target } : {}), ...(n.entryAngleDeg !== undefined ? { entryAngleDeg: n.entryAngleDeg } : {}), ...(n.travelTimeMs !== undefined ? { travelTimeMs: n.travelTimeMs } : {}) } : n;
     if (!layout.target || !finite(layout.target.x) || !finite(layout.target.y) || layout.target.x < .08 || layout.target.x > .92 || layout.target.y < .08 || layout.target.y > .92) throw new Error('Target coordinates must be within 0.08–0.92 of the play area.');
     if (!finite(layout.entryAngleDeg) || layout.entryAngleDeg < 0 || layout.entryAngleDeg >= 360) throw new Error('Entry direction must be 0–359.99 degrees.');
-    if (!finite(layout.travelTimeMs) || layout.travelTimeMs < 200 || layout.travelTimeMs > 5000) throw new Error('Travel time must be 200–5000 ms.');
+    const travel = layout.travelTimeMs ?? bpmTravelTimeMs(c.timing.bpm);
+    if (!finite(travel) || travel < 200 || travel > 5000) throw new Error('Travel time must be 200–5000 ms.');
     ids.add(n.id);
-    return { target: clone(layout.target), entryAngleDeg: layout.entryAngleDeg, travelTimeMs: layout.travelTimeMs, id: n.id, type: n.type, symbol: n.symbol, side: n.side, timeMs: n.timeMs, ...(n.type === 'hold' ? { durationMs: n.durationMs } : {}), ...(n.chordId ? { chordId: n.chordId } : {}) };
+    return { target: snapTarget(layout.target), entryAngleDeg: layout.entryAngleDeg, travelTimeMs: bpmTravelTimeMs(c.timing.bpm), id: n.id, type: n.type, symbol: n.symbol, side: n.side, timeMs: n.timeMs, ...(n.type === 'hold' ? { durationMs: n.durationMs } : {}), ...(n.chordId ? { chordId: n.chordId } : {}) };
   });
   return { schemaVersion: 2, chartId: c.chartId, songId: c.songId, name: c.name, difficulty: c.difficulty, rulesetId: 'beatorbit-standard-v1', revision: c.revision, timing: clone(c.timing), audioRef: { fileName: c.audioRef.fileName, durationMs: c.audioRef.durationMs }, notes: sortNotes(notes), updatedAt: c.updatedAt };
 }
