@@ -17,7 +17,7 @@
 @media(max-height:540px) and (orientation:landscape){
   .settings-toggle{display:inline-flex}
   .studio-shell .chart-settings{display:none}
-  .studio-shell .settings-open .chart-settings{display:flex}
+  .studio-shell.settings-open .chart-settings{display:flex}
   .studio-shell .tools{max-height:350px;overflow-y:auto}
   .studio-shell .tool{min-height:39px}
   .studio-shell .timeline-help,.studio-shell .editor-footer{display:none}

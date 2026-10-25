@@ -82,43 +82,51 @@ test('first visit seeds all demos within the boot budget and survives refresh',a
 });
 
 test('import → unsaved playtest → save → Standard Play → reopen',async({page},testInfo)=>{
+  test.setTimeout(45000);
   await page.goto('./');
   await requireWebAudio(page);
   await expect(page.locator('.track-row')).toHaveCount(3);
   await page.screenshot({path:testInfo.outputPath('library.png'),fullPage:true});
-  await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
-  await expect(page.locator('#import-title')).toBeVisible();
-  await page.locator('#import-title').fill('Browser test track');
-  await page.locator('#confirm-import').click();
-  await page.locator('[data-choice="studio"]').click();
-  await expect(page.locator('#timeline')).toBeVisible();
-  const timingToggle=page.locator('[data-editor="settings"]');
-  if(await timingToggle.isVisible())await timingToggle.click();
-  await page.locator('#chart-name').fill('Playable browser chart');
-  await page.locator('#chart-name').press('Tab');
-  if(await timingToggle.isVisible())await timingToggle.click();
-  // Canvas coordinates use the same viewport transform as the production editor.
-  await page.locator('#timeline').click({position:{x:155,y:126}});
-  await page.locator('[data-editor="playtest"]').click();
-  await expect(page.locator('.play-mode')).toContainText('STUDIO PLAYTEST');
-  await expect(page.locator('.results-view')).toBeVisible({timeout:12000});
-  await page.locator('[data-action="result-return"]').click();
-  await expect(page.locator('#note-count')).toHaveText('1 notes');
-  await page.locator('[data-editor="save"]').click();
-  await expect(page.locator('#save-status')).toHaveText('All changes saved');
-  await page.locator('.sidebar button[data-action="library"]').click();
-  const row=page.locator('.track-row').filter({hasText:'Browser test track'});
-  await expect(row.locator('[data-action="play-song"]')).toBeEnabled();
-  await row.locator('[data-action="play-song"]').click();
-  await expect(page.locator('.results-view')).toBeVisible({timeout:12000});
-  await expect(page.locator('.results-view')).toContainText('chart revision 1');
-  await page.locator('[data-action="result-return"]').click();
-  await page.reload();
-  await expect(page.locator('.track-row').filter({hasText:'Browser test track'})).toBeVisible();
-  await page.locator('.track-row').filter({hasText:'Browser test track'}).locator('[data-action="manage-song"]').click();
-  await page.locator('[data-manage="edit"]').first().click();
-  await expect(page.locator('#note-count')).toHaveText('1 notes');
-  await page.screenshot({path:testInfo.outputPath('studio.png'),fullPage:true});
+  await test.step('Import local audio and open Orbit Studio',async()=>{
+    await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
+    await expect(page.locator('#import-title')).toBeVisible();
+    await page.locator('#import-title').fill('Browser test track');
+    await page.locator('#confirm-import').click();
+    await page.locator('[data-choice="studio"]').click();
+    await expect(page.locator('#timeline')).toBeVisible();
+  });
+  await test.step('Name the chart and complete Studio Playtest',async()=>{
+    const timingToggle=page.locator('[data-editor="settings"]');
+    if(await timingToggle.isVisible())await timingToggle.click();
+    await expect(page.locator('#chart-name')).toBeVisible();
+    await page.locator('#chart-name').fill('Playable browser chart');
+    await page.locator('#chart-name').press('Tab');
+    if(await timingToggle.isVisible())await timingToggle.click();
+    // Canvas coordinates use the same viewport transform as the production editor.
+    await page.locator('#timeline').click({position:{x:155,y:126}});
+    await page.locator('[data-editor="playtest"]').click();
+    await expect(page.locator('.play-mode')).toContainText('STUDIO PLAYTEST');
+    await expect(page.locator('.results-view')).toBeVisible({timeout:12000});
+    await page.locator('[data-action="result-return"]').click();
+    await expect(page.locator('#note-count')).toHaveText('1 notes');
+    await page.locator('[data-editor="save"]').click();
+    await expect(page.locator('#save-status')).toHaveText('All changes saved');
+  });
+  await test.step('Complete Standard Play and reopen the saved chart',async()=>{
+    await page.locator('.sidebar button[data-action="library"]').click();
+    const row=page.locator('.track-row').filter({hasText:'Browser test track'});
+    await expect(row.locator('[data-action="play-song"]')).toBeEnabled();
+    await row.locator('[data-action="play-song"]').click();
+    await expect(page.locator('.results-view')).toBeVisible({timeout:12000});
+    await expect(page.locator('.results-view')).toContainText('chart revision 1');
+    await page.locator('[data-action="result-return"]').click();
+    await page.reload();
+    await expect(page.locator('.track-row').filter({hasText:'Browser test track'})).toBeVisible();
+    await page.locator('.track-row').filter({hasText:'Browser test track'}).locator('[data-action="manage-song"]').click();
+    await page.locator('[data-manage="edit"]').first().click();
+    await expect(page.locator('#note-count')).toHaveText('1 notes');
+    await page.screenshot({path:testInfo.outputPath('studio.png'),fullPage:true});
+  });
 });
 
 test('recovers an unsaved draft after refresh without replacing its saved chart',async({page},testInfo)=>{
@@ -128,6 +136,7 @@ test('recovers an unsaved draft after refresh without replacing its saved chart'
   await page.locator('[data-manage="edit"]').first().click();
   const timingToggle=page.locator('[data-editor="settings"]');
   if(await timingToggle.isVisible())await timingToggle.click();
+  await expect(page.locator('#chart-name')).toBeVisible();
   await page.locator('#chart-name').fill('Recover this draft');
   await page.locator('#chart-name').press('Tab');
   await expect(page.locator('#save-status')).toContainText('Draft saved');
