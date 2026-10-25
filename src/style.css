@@ -17,7 +17,7 @@
 @media(max-height:540px) and (orientation:landscape){
   .settings-toggle{display:inline-flex}
   .studio-shell .chart-settings{display:none}
-  .studio-shell.settings-open .chart-settings{display:flex}
+  .studio-shell .settings-open .chart-settings{display:flex}
   .studio-shell .tools{max-height:350px;overflow-y:auto}
   .studio-shell .tool{min-height:39px}
   .studio-shell .timeline-help,.studio-shell .editor-footer{display:none}
@@ -40,3 +40,5 @@
 @media(max-height:540px) and (orientation:landscape){.game-stage{height:calc(100dvh - 152px);min-height:205px;max-height:none;padding:8px 16px;grid-template-columns:52px minmax(0,1fr) 52px;gap:18px}.game-controls{gap:4px}.game-key{width:auto;height:100%;max-height:52px;padding:10px;border-width:2px}.game-key small{display:none}.orbit-stage{max-width:none}.play-info{margin-top:5px}.play-bottom p{margin-top:3px}}
 
 .stage-preview{padding:12px;border-top:1px solid #314358}.stage-preview-header{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:#a7bed6;margin-bottom:8px}.stage-preview canvas{display:block;width:100%;height:210px;border-radius:12px;touch-action:none}.stage-preview label{display:flex;align-items:center;gap:10px;font-size:9px;margin-top:8px}.stage-preview input{width:100%}.selected-symbol .note-symbol{width:50px;height:50px}
+.studio-mobile-library{color:#cbd6c8;font-size:11px;font-weight:600}
+.studio-mobile-library:before{content:'←';font-size:19px;line-height:1}

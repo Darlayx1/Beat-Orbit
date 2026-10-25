@@ -97,7 +97,10 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
   });
   await test.step('Name the chart and complete Studio Playtest',async()=>{
     const timingToggle=page.locator('[data-editor="settings"]');
-    if(await timingToggle.isVisible())await timingToggle.click();
+    if(await timingToggle.isVisible()){
+      await timingToggle.click();
+      await expect(page.locator('#studio-mount')).toHaveClass(/settings-open/);
+    }
     await expect(page.locator('#chart-name')).toBeVisible();
     await page.locator('#chart-name').fill('Playable browser chart');
     await page.locator('#chart-name').press('Tab');
@@ -113,7 +116,9 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
     await expect(page.locator('#save-status')).toHaveText('All changes saved');
   });
   await test.step('Complete Standard Play and reopen the saved chart',async()=>{
-    await page.locator('.sidebar button[data-action="library"]').click();
+    const sidebarLibrary=page.locator('.sidebar button[data-action="library"]');
+    if(await sidebarLibrary.isVisible())await sidebarLibrary.click();
+    else await page.locator('.studio-mobile-library').click();
     const row=page.locator('.track-row').filter({hasText:'Browser test track'});
     await expect(row.locator('[data-action="play-song"]')).toBeEnabled();
     await row.locator('[data-action="play-song"]').click();
