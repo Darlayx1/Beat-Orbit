@@ -124,43 +124,45 @@ function drawTarget(c: CanvasRenderingContext2D, p: Point, u: number, color: str
   const R = 20.25 * u, wellR = 15.75 * u;
   c.fillStyle = 'rgba(2,6,12,.45)'; c.beginPath(); c.ellipse(p.x + 1.4 * u, p.y + 3.6 * u, R * 1.04, R * .93, 0, 0, TAU); c.fill();
   if (s.dual) {
-    // Dominant Dual Target chassis: outer gold-chrome crown + bold Left/Right wing brackets.
-    c.strokeStyle = 'rgba(255,220,115,.92)'; c.lineWidth = 2.6 * u; circle(c, p.x, p.y, R + 3.2 * u); c.stroke();
-    for (const [side, dir] of [['left', -1], ['right', 1]] as const) {
-      const lit = s.done || s.litSides.has(side), wx = p.x + dir * (R + 4.8 * u);
-      c.strokeStyle = 'rgba(2,6,12,.75)'; c.lineWidth = 4.6 * u; c.lineCap = 'round'; c.lineJoin = 'round';
-      c.beginPath(); c.moveTo(wx - dir * 3.5 * u, p.y - 9.5 * u); c.lineTo(wx + dir * 4.2 * u, p.y); c.lineTo(wx - dir * 3.5 * u, p.y + 9.5 * u); c.stroke();
-      c.strokeStyle = lit ? '#ffffff' : '#ffd875'; c.lineWidth = 2.8 * u;
-      c.beginPath(); c.moveTo(wx - dir * 3.5 * u, p.y - 9.5 * u); c.lineTo(wx + dir * 4.2 * u, p.y); c.lineTo(wx - dir * 3.5 * u, p.y + 9.5 * u); c.stroke();
+    // Clean button-colored outer concentric ring for Dual Target (no yellow, no protruding wings).
+    c.strokeStyle = 'rgba(2,6,12,.68)'; c.lineWidth = 4.2 * u; circle(c, p.x, p.y, R + 2.6 * u); c.stroke();
+    c.strokeStyle = withAlpha(color, .82); c.lineWidth = 2.1 * u; circle(c, p.x, p.y, R + 2.6 * u); c.stroke();
+    for (const [side, start, end] of [['left', Math.PI * .58, Math.PI * 1.42], ['right', -Math.PI * .42, Math.PI * .42]] as const) {
+      if (s.done || s.litSides.has(side)) {
+        c.strokeStyle = shade(color, .62); c.lineWidth = 2.6 * u; c.lineCap = 'round';
+        c.beginPath(); c.arc(p.x, p.y, R + 2.6 * u, start, end); c.stroke();
+      }
     }
   }
   let g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
-  g.addColorStop(0, s.dual ? '#fff3d1' : '#dfe7f1'); g.addColorStop(.45, s.dual ? '#c79b42' : '#76869c'); g.addColorStop(1, '#202a38');
+  g.addColorStop(0, s.dual ? shade(color, .52) : '#dfe7f1');
+  g.addColorStop(.45, s.dual ? shade(color, -.08) : '#76869c');
+  g.addColorStop(1, s.dual ? shade(color, -.58) : '#202a38');
   c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = shade(color, s.holding ? .15 : s.dual ? .05 : -.25); c.lineWidth = 2.6 * u; circle(c, p.x, p.y, R * .84); c.stroke();
+  c.strokeStyle = shade(color, s.holding ? .22 : s.dual ? .32 : -.25); c.lineWidth = 2.4 * u; circle(c, p.x, p.y, R * .84); c.stroke();
   g = c.createRadialGradient(p.x - R * .25, p.y - R * .3, R * .1, p.x, p.y, wellR);
-  g.addColorStop(0, s.holding ? '#33496a' : s.dual ? '#352f42' : '#2a3a50'); g.addColorStop(1, '#0b131f');
+  g.addColorStop(0, s.holding ? '#33496a' : s.dual ? shade(color, -.62) : '#2a3a50'); g.addColorStop(1, '#0b131f');
   c.fillStyle = g; circle(c, p.x, p.y, wellR); c.fill();
   if (s.dual) {
-    c.strokeStyle = 'rgba(255,220,115,.45)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, wellR * .82); c.stroke();
+    c.strokeStyle = withAlpha(color, .55); c.lineWidth = 1.4 * u; circle(c, p.x, p.y, wellR * .82); c.stroke();
   }
   c.lineCap = 'round';
   c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.8 * u; c.beginPath(); c.arc(p.x, p.y, wellR, Math.PI * .72, Math.PI * 1.78); c.stroke();
   c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, wellR, -Math.PI * .28, Math.PI * .78); c.stroke();
-  // Embossed symbol: dark offset first, then the colored face.
+  // Embossed symbol: dark offset first, then the button-colored face (solid-filled for Dual, outline for Single).
   c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = 'rgba(0,0,0,.65)';
   drawSymbol(c, symbol, p.x + 1 * u, p.y + 1.3 * u, 9.6 * u, s.dual, 2.4 * u);
-  c.strokeStyle = s.dual ? '#fff7e0' : color; c.fillStyle = color;
-  drawSymbol(c, symbol, p.x, p.y, 9.6 * u, s.dual, (s.dual ? 2.6 : 2.35) * u);
+  c.strokeStyle = s.dual ? shade(color, .28) : color; c.fillStyle = s.dual ? shade(color, .22) : color;
+  drawSymbol(c, symbol, p.x, p.y, 9.6 * u, s.dual, (s.dual ? 2.5 : 2.35) * u);
   if (s.hold) {
-    const ring = R + (s.dual ? 6.8 : 5.6) * u;
+    const ring = R + (s.dual ? 6.2 : 5.6) * u;
     c.strokeStyle = 'rgba(4,8,14,.72)'; c.lineWidth = 4.6 * u; circle(c, p.x, p.y, ring); c.stroke();
-    c.strokeStyle = s.dual ? 'rgba(255,220,115,.42)' : 'rgba(190,205,225,.28)'; c.lineWidth = 1.4 * u; circle(c, p.x, p.y, ring); c.stroke();
+    c.strokeStyle = s.dual ? withAlpha(color, .45) : 'rgba(190,205,225,.28)'; c.lineWidth = 1.4 * u; circle(c, p.x, p.y, ring); c.stroke();
     if (s.holding && s.progress > 0) {
-      c.strokeStyle = s.dual ? '#ffd875' : shade(color, .4); c.lineWidth = 4.2 * u;
+      c.strokeStyle = shade(color, .4); c.lineWidth = 4.2 * u;
       c.beginPath(); c.arc(p.x, p.y, ring, -Math.PI / 2, -Math.PI / 2 + TAU * s.progress); c.stroke();
     }
-    c.fillStyle = s.dual ? '#ffe082' : shade(color, s.holding ? .55 : .3); c.font = `800 ${9 * u}px "DM Sans","Segoe UI",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+    c.fillStyle = shade(color, s.holding ? .55 : .3); c.font = `800 ${9 * u}px "DM Sans","Segoe UI",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
     c.fillText(s.holding ? 'HOLDING' : s.dual ? 'DUAL HOLD' : 'HOLD', p.x, p.y + ring + 11.5 * u);
   }
 }
@@ -172,9 +174,9 @@ function drawHoldLane(c: CanvasRenderingContext2D, head: Point, tail: Point, u: 
   c.lineCap = 'round';
   const line = (style: string, w: number) => { c.strokeStyle = style; c.lineWidth = w; c.beginPath(); c.moveTo(head.x, head.y); c.lineTo(tail.x, tail.y); c.stroke(); };
   line('#070d15', width + 5.5 * u);
-  if (dual) line('rgba(255,216,117,.75)', width + 2.6 * u);
+  if (dual) line(withAlpha(color, .75), width + 2.4 * u);
   line(shade(color, holding ? -.02 : -.38), width);
-  line(dual ? '#fff3c4' : shade(color, holding ? .52 : .12), width * .38);
+  line(shade(color, holding ? .52 : dual ? .32 : .12), width * .38);
   c.lineCap = 'butt'; c.strokeStyle = 'rgba(7,13,21,.55)'; c.lineWidth = 1.7 * u;
   const spacing = 16 * u;
   c.beginPath();
@@ -189,24 +191,24 @@ function drawReleaseMarker(c: CanvasRenderingContext2D, p: Point, u: number, col
   const diamond = (x: number, y: number, size: number) => { c.beginPath(); c.moveTo(x, y - size); c.lineTo(x + size, y); c.lineTo(x, y + size); c.lineTo(x - size, y); c.closePath(); };
   c.fillStyle = 'rgba(2,6,12,.44)'; diamond(p.x + 1.4 * u, p.y + 3.4 * u, r); c.fill();
   if (dual) {
-    c.strokeStyle = '#ffd875'; c.lineWidth = 2.4 * u; diamond(p.x, p.y, r + 3 * u); c.stroke();
+    c.strokeStyle = shade(color, .32); c.lineWidth = 2.2 * u; diamond(p.x, p.y, r + 2.8 * u); c.stroke();
   }
   const g = c.createLinearGradient(p.x - r, p.y - r, p.x + r, p.y + r);
   g.addColorStop(0, shade(color, .38)); g.addColorStop(.55, shade(color, -.12)); g.addColorStop(1, shade(color, -.55));
   c.fillStyle = g; diamond(p.x, p.y, r); c.fill();
-  c.lineJoin = 'round'; c.strokeStyle = dual ? '#ffe082' : shade(color, -.65); c.lineWidth = 1.8 * u; c.stroke();
+  c.lineJoin = 'round'; c.strokeStyle = dual ? shade(color, .38) : shade(color, -.65); c.lineWidth = 1.8 * u; c.stroke();
   c.strokeStyle = 'rgba(255,255,255,.58)'; c.lineWidth = 1.2 * u; diamond(p.x, p.y, r * .72); c.stroke();
   c.fillStyle = '#f2f6fb'; c.strokeStyle = '#f2f6fb'; drawSymbol(c, symbol, p.x, p.y, 7.2 * u, true, 1.4 * u);
 }
 // Tapered comet tail behind the note, opposite to its travel direction.
 function drawTrail(c: CanvasRenderingContext2D, p: Point, dir: Point, u: number, color: string, length: number, alpha: number, dual = false) {
   if (length < 3 || alpha <= 0) return;
-  const half = (dual ? 17 : 15) * u, bx = p.x + dir.x * length, by = p.y + dir.y * length, nx = -dir.y, ny = dir.x;
+  const half = (dual ? 16.5 : 15) * u, bx = p.x + dir.x * length, by = p.y + dir.y * length, nx = -dir.y, ny = dir.x;
   const g = c.createLinearGradient(p.x, p.y, bx, by);
   g.addColorStop(0, withAlpha(color, (dual ? .62 : .5) * alpha)); g.addColorStop(1, withAlpha(color, 0));
   c.fillStyle = g; c.beginPath(); c.moveTo(p.x + nx * half, p.y + ny * half); c.lineTo(bx, by); c.lineTo(p.x - nx * half, p.y - ny * half); c.closePath(); c.fill();
   const core = c.createLinearGradient(p.x, p.y, bx, by);
-  core.addColorStop(0, dual ? `rgba(255,230,140,${.45 * alpha})` : `rgba(255,255,255,${.28 * alpha})`); core.addColorStop(1, 'rgba(255,255,255,0)');
+  core.addColorStop(0, `rgba(255,255,255,${(dual ? .36 : .28) * alpha})`); core.addColorStop(1, 'rgba(255,255,255,0)');
   c.fillStyle = core; c.beginPath(); c.moveTo(p.x + nx * half * .42, p.y + ny * half * .42); c.lineTo(p.x + dir.x * length * .74, p.y + dir.y * length * .74); c.lineTo(p.x - nx * half * .42, p.y - ny * half * .42); c.closePath(); c.fill();
 }
 // A convex disc: matte body, rim, inner bevel and an embossed white symbol.
@@ -215,30 +217,23 @@ function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: strin
   c.globalAlpha = alpha;
   c.fillStyle = 'rgba(2,6,12,.42)'; c.beginPath(); c.ellipse(p.x + 1.6 * u, p.y + 3.8 * u, R * .98, R * .65, 0, 0, TAU); c.fill();
   if (dual) {
-    // Dominant Dual Note armor: bright gold outer ring + Left/Right chevron wings on the moving note.
-    c.strokeStyle = 'rgba(2,6,12,.75)'; c.lineWidth = 4.6 * u; circle(c, p.x, p.y, R + 2.8 * u); c.stroke();
-    c.strokeStyle = '#ffd875'; c.lineWidth = 2.4 * u; circle(c, p.x, p.y, R + 2.8 * u); c.stroke();
-    for (const dir of [-1, 1] as const) {
-      const wx = p.x + dir * (R + 4.6 * u);
-      c.strokeStyle = 'rgba(2,6,12,.8)'; c.lineWidth = 4.2 * u; c.lineCap = 'round'; c.lineJoin = 'round';
-      c.beginPath(); c.moveTo(wx - dir * 2.8 * u, p.y - 7.5 * u); c.lineTo(wx + dir * 3.6 * u, p.y); c.lineTo(wx - dir * 2.8 * u, p.y + 7.5 * u); c.stroke();
-      c.strokeStyle = '#fff5d6'; c.lineWidth = 2.4 * u;
-      c.beginPath(); c.moveTo(wx - dir * 2.8 * u, p.y - 7.5 * u); c.lineTo(wx + dir * 3.6 * u, p.y); c.lineTo(wx - dir * 2.8 * u, p.y + 7.5 * u); c.stroke();
-    }
+    // Cohesive button-colored outer concentric ring for Dual Note (no yellow, no side chevron wings).
+    c.strokeStyle = 'rgba(2,6,12,.72)'; c.lineWidth = 4.2 * u; circle(c, p.x, p.y, R + 2.5 * u); c.stroke();
+    c.strokeStyle = shade(color, .28); c.lineWidth = 2.1 * u; circle(c, p.x, p.y, R + 2.5 * u); c.stroke();
   }
   const g = c.createRadialGradient(p.x - R * .35, p.y - R * .4, R * .08, p.x, p.y, R * 1.05);
-  g.addColorStop(0, shade(color, dual ? .68 : .55)); g.addColorStop(.48, color); g.addColorStop(1, shade(color, -.5));
+  g.addColorStop(0, shade(color, dual ? .62 : .55)); g.addColorStop(.48, color); g.addColorStop(1, shade(color, -.5));
   c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = dual ? '#ffe599' : shade(color, -.65); c.lineWidth = (dual ? 2 : 1.5) * u; circle(c, p.x, p.y, R); c.stroke();
+  c.strokeStyle = dual ? shade(color, .38) : shade(color, -.65); c.lineWidth = (dual ? 1.8 : 1.5) * u; circle(c, p.x, p.y, R); c.stroke();
   if (dual) {
-    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, R * .78); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.52)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, R * .78); c.stroke();
   } else {
     c.lineCap = 'round'; c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, R * .8, Math.PI * .9, Math.PI * 1.65); c.stroke();
   }
-  if (hold) { c.strokeStyle = dual ? '#ffe082' : 'rgba(240,245,252,.92)'; c.lineWidth = 2 * u; circle(c, p.x, p.y, R + (dual ? 5.2 : 2.8) * u); c.stroke(); }
+  if (hold) { c.strokeStyle = dual ? shade(color, .45) : 'rgba(240,245,252,.92)'; c.lineWidth = 2 * u; circle(c, p.x, p.y, R + (dual ? 4.8 : 2.8) * u); c.stroke(); }
   c.fillStyle = 'rgba(0,0,0,.42)'; c.strokeStyle = 'rgba(0,0,0,.42)';
   drawSymbol(c, symbol, p.x + .9 * u, p.y + 1.1 * u, 10.2 * u, dual, 2.35 * u);
-  c.fillStyle = dual ? '#fff8e6' : '#f3f6fa'; c.strokeStyle = dual ? '#ffffff' : '#f3f6fa';
+  c.fillStyle = '#f3f6fa'; c.strokeStyle = '#f3f6fa';
   drawSymbol(c, symbol, p.x, p.y, 10.2 * u, dual, (dual ? 2.5 : 2.3) * u);
   c.globalAlpha = 1;
 }
