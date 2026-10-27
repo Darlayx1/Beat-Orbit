@@ -25,7 +25,8 @@ export function snapTarget(target: { x: number; y: number }, step: number = STAG
   return { x: snapTargetCoord(target.x, step), y: snapTargetCoord(target.y, step) };
 }
 export function bpmTravelTimeMs(bpm: number): number {
-  return Math.round(Math.max(200, Math.min(5000, 240000 / (Number.isFinite(bpm) && bpm > 0 ? bpm : 120))));
+  const safe = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+  return Math.round(Math.max(200, Math.min(5000, 2000 * Math.pow(120 / safe, 1.35))));
 }
 export function gridStepForSubdivision(subdivision: number): number {
   if (subdivision >= 32) return STAGE_GRID.minorStep; // 1/32 -> 1/2 grid unit (0.025)

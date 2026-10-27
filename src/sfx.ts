@@ -1,15 +1,15 @@
 import type { AudioTransport } from './audio';
-import { SYMBOLS, type SymbolName } from './domain';
+import { type SymbolName } from './domain';
 
 // Every sound is synthesised locally with Web Audio. No sample files, uploads or network requests.
 export type HitKind = 'perfect' | 'great' | 'good' | 'miss' | 'wrong';
 export type UiSound = 'click' | 'open' | 'close' | 'confirm' | 'tick';
-type ToneOptions = { type?: OscillatorType; from: number; to?: number; dur: number; vol: number; at?: number; attack?: number; filter?: { type: BiquadFilterType; freq: number } };
+type ToneOptions = { type?: OscillatorType; from: number; to?: number; dur: number; vol: number; at?: number; attack?: number; filter?: { type: BiquadFilterType; freq: number; q?: number } };
 type Sustain = { oscillators: OscillatorNode[]; gain: GainNode };
-// Pentatonic-ish offsets keep each symbol recognisable without sounding like a melody.
-const RATIOS = [1, 1.122, 1.26, 1.498];
-const KIND_PITCH: Record<HitKind, number> = { perfect: 1, great: .9, good: .75, miss: 1, wrong: 1 };
-const KIND_LEVEL: Record<HitKind, number> = { perfect: .5, great: .42, good: .32, miss: .36, wrong: .42 };
+
+// Subtle dynamic shading per judgement without shifting musical pitch out of the song's key.
+const KIND_LEVEL: Record<HitKind, number> = { perfect: .34, great: .28, good: .22, miss: .2, wrong: .24 };
+const KIND_BRIGHTNESS: Record<HitKind, number> = { perfect: 1, great: .92, good: .82, miss: .7, wrong: .75 };
 
 export class SoundBank {
   private noise?: AudioBuffer;
@@ -27,81 +27,106 @@ export class SoundBank {
   }
   private tone(ctx: AudioContext, out: AudioNode, now: number, o: ToneOptions) {
     const t = now + (o.at || 0), osc = ctx.createOscillator(), gain = ctx.createGain();
+    const attack = o.attack ?? .007;
     osc.type = o.type || 'sine';
     osc.frequency.setValueAtTime(o.from, t);
     if (o.to && o.to !== o.from) osc.frequency.exponentialRampToValueAtTime(o.to, t + o.dur);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(o.vol, t + (o.attack ?? .004));
+    gain.gain.linearRampToValueAtTime(o.vol, t + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
     let head: AudioNode = osc;
-    if (o.filter) { const f = ctx.createBiquadFilter(); f.type = o.filter.type; f.frequency.value = o.filter.freq; osc.connect(f); head = f; }
+    if (o.filter) {
+      const f = ctx.createBiquadFilter();
+      f.type = o.filter.type;
+      f.frequency.value = o.filter.freq;
+      if (o.filter.q) f.Q.value = o.filter.q;
+      osc.connect(f);
+      head = f;
+    }
     head.connect(gain); gain.connect(out);
     osc.start(t); osc.stop(t + o.dur + .03);
   }
-  private tick(ctx: AudioContext, out: AudioNode, now: number, freq: number, dur: number, vol: number, at = 0) {
+  // Soft felt/wood transient with low-pass warmth instead of harsh high-frequency noise.
+  private softTap(ctx: AudioContext, out: AudioNode, now: number, freq: number, dur: number, vol: number, at = 0) {
     if (!this.noise) {
-      const length = Math.floor(ctx.sampleRate * .25), buffer = ctx.createBuffer(1, length, ctx.sampleRate), data = buffer.getChannelData(0);
-      let seed = 12345;
-      for (let i = 0; i < length; i++) { seed = (seed * 16807) % 2147483647; data[i] = seed / 2147483647 * 2 - 1; }
+      const length = Math.floor(ctx.sampleRate * .2), buffer = ctx.createBuffer(1, length, ctx.sampleRate), data = buffer.getChannelData(0);
+      let seed = 12345, prev = 0;
+      for (let i = 0; i < length; i++) {
+        seed = (seed * 16807) % 2147483647;
+        const white = seed / 2147483647 * 2 - 1;
+        prev = prev * .82 + white * .18; // Warm pink-ish smoothing
+        data[i] = prev;
+      }
       this.noise = buffer;
     }
     const t = now + at, src = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
-    src.buffer = this.noise; filter.type = 'bandpass'; filter.frequency.value = freq; filter.Q.value = 1.2;
-    gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.buffer = this.noise; filter.type = 'lowpass'; filter.frequency.value = freq; filter.Q.value = .7;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(vol, t + .004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(filter); filter.connect(gain); gain.connect(out);
     src.start(t); src.stop(t + dur + .02);
   }
 
   /** Note hit, hold head/tail, miss, or a wrong-symbol press. `scale` softens secondary sounds. */
-  hit(kind: HitKind, symbol: SymbolName | number = 0, scale = 1) {
+  hit(kind: HitKind, _symbol: SymbolName | number = 0, scale = 1) {
     this.run('sfx', (ctx, out, now) => {
-      const index = typeof symbol === 'number' ? symbol : SYMBOLS.indexOf(symbol), ratio = RATIOS[Math.max(0, index) % 4] * KIND_PITCH[kind];
-      const vol = KIND_LEVEL[kind] * scale;
+      const vol = KIND_LEVEL[kind] * scale, bright = KIND_BRIGHTNESS[kind];
       if (kind === 'wrong') {
-        // Two falling, muffled tones read as a questioning "uh-uh".
-        this.tone(ctx, out, now, { type: 'sawtooth', from: 310, to: 230, dur: .1, vol: vol * .8, filter: { type: 'lowpass', freq: 800 } });
-        this.tone(ctx, out, now, { type: 'sawtooth', from: 250, to: 160, dur: .16, vol: vol * .8, at: .1, filter: { type: 'lowpass', freq: 650 } });
+        // Soft, muted double wood-tap ("uh-uh") without any harsh buzzer waveforms.
+        this.tone(ctx, out, now, { type: 'sine', from: 190, to: 145, dur: .085, vol: vol * .85, attack: .006, filter: { type: 'lowpass', freq: 380 } });
+        this.tone(ctx, out, now, { type: 'sine', from: 150, to: 112, dur: .12, vol: vol * .8, at: .075, attack: .006, filter: { type: 'lowpass', freq: 320 } });
         return;
       }
-      if (kind === 'miss') { this.tone(ctx, out, now, { from: 140, to: 62, dur: .16, vol, filter: { type: 'lowpass', freq: 500 } }); return; }
+      if (kind === 'miss') {
+        this.tone(ctx, out, now, { type: 'sine', from: 135, to: 78, dur: .12, vol: vol * .75, attack: .008, filter: { type: 'lowpass', freq: 300 } });
+        return;
+      }
       switch (this.transport.settings.hitPreset) {
         case 'tactile':
-          this.tone(ctx, out, now, { from: 230 * ratio, to: 90, dur: .09, vol: vol * 1.2 });
-          this.tick(ctx, out, now, 2300 * ratio, .035, vol * .8);
+          // Cushioned felt-mallet thock: warm low body + soft wood transient.
+          this.tone(ctx, out, now, { type: 'sine', from: 195 * bright, to: 86, dur: .075, vol: vol * 1.15, attack: .005, filter: { type: 'lowpass', freq: 650 } });
+          this.tone(ctx, out, now, { type: 'triangle', from: 420 * bright, to: 180, dur: .04, vol: vol * .42, attack: .004, filter: { type: 'lowpass', freq: 820 } });
+          this.softTap(ctx, out, now, 780 * bright, .028, vol * .35);
           break;
         case 'synth':
-          this.tone(ctx, out, now, { type: 'sawtooth', from: 440 * ratio * 1.5, to: 440 * ratio * .75, dur: .15, vol: vol * .5, filter: { type: 'lowpass', freq: 3200 } });
-          this.tone(ctx, out, now, { type: 'square', from: 220 * ratio, dur: .09, vol: vol * .18, filter: { type: 'lowpass', freq: 1400 } });
+          // Velvet electric-piano pluck: warm sine + filtered triangle overtone.
+          this.tone(ctx, out, now, { type: 'sine', from: 396 * bright, to: 392 * bright, dur: .16, vol: vol * .95, attack: .008 });
+          this.tone(ctx, out, now, { type: 'triangle', from: 594 * bright, dur: .11, vol: vol * .32, attack: .008, filter: { type: 'lowpass', freq: 980 } });
+          this.softTap(ctx, out, now, 680, .022, vol * .2);
           break;
         case 'classic':
-          this.tone(ctx, out, now, { type: 'triangle', from: 880 * ratio, to: 640 * ratio, dur: .08, vol: vol * 1.1 });
-          this.tick(ctx, out, now, 3200, .02, vol * .6);
+          // Studio soft tap: clean, neutral, and effortless on long sessions.
+          this.tone(ctx, out, now, { type: 'sine', from: 330 * bright, to: 155, dur: .065, vol: vol * 1.05, attack: .005, filter: { type: 'lowpass', freq: 780 } });
+          this.softTap(ctx, out, now, 920 * bright, .02, vol * .28);
           break;
         default:
-          this.tone(ctx, out, now, { type: 'triangle', from: 1318.5 * ratio * .75, dur: .24, vol: vol * .9 });
-          this.tone(ctx, out, now, { from: 1318.5 * ratio * 1.5, dur: .12, vol: vol * .3 });
-          this.tick(ctx, out, now, 6200, .02, vol * .35);
+          // Crystal (default): warm glass marimba chime with rounded sine harmonics.
+          this.tone(ctx, out, now, { type: 'sine', from: 528 * bright, to: 520 * bright, dur: .17, vol: vol * .9, attack: .006, filter: { type: 'lowpass', freq: 1350 } });
+          this.tone(ctx, out, now, { type: 'sine', from: 264 * bright, to: 176, dur: .09, vol: vol * .55, attack: .005 });
+          this.tone(ctx, out, now, { type: 'sine', from: 1056 * bright, dur: .075, vol: vol * .2, attack: .006, filter: { type: 'lowpass', freq: 1600 } });
       }
     });
   }
 
-  /** Continuous bed while a Hold is physically pressed. */
-  startHold(id: string, symbol: SymbolName | number = 0) {
+  /** Warm, soothing sub-air pad while a Hold is physically pressed. */
+  startHold(id: string, _symbol: SymbolName | number = 0) {
     if (!this.transport.settings.holdSustain) return;
     this.stopHold(id);
     this.run('sfx', (ctx, out, now) => {
-      const index = typeof symbol === 'number' ? symbol : SYMBOLS.indexOf(symbol), base = 196 * RATIOS[Math.max(0, index) % 4];
-      const body = ctx.createOscillator(), shimmer = ctx.createOscillator(), lfo = ctx.createOscillator();
-      const filter = ctx.createBiquadFilter(), gain = ctx.createGain(), shimmerGain = ctx.createGain(), lfoGain = ctx.createGain();
-      body.type = 'triangle'; body.frequency.value = base;
-      shimmer.type = 'sawtooth'; shimmer.frequency.value = base * 2.004; shimmerGain.gain.value = .28;
-      lfo.frequency.value = 6.5; lfoGain.gain.value = .02;
-      filter.type = 'lowpass'; filter.frequency.value = 1300;
-      gain.gain.setValueAtTime(0.0001, now); gain.gain.linearRampToValueAtTime(.12, now + .07);
-      body.connect(filter); shimmer.connect(shimmerGain); shimmerGain.connect(filter); filter.connect(gain); gain.connect(out);
+      const base = 220;
+      const body = ctx.createOscillator(), fifth = ctx.createOscillator(), lfo = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter(), gain = ctx.createGain(), fifthGain = ctx.createGain(), lfoGain = ctx.createGain();
+      body.type = 'sine'; body.frequency.value = base;
+      fifth.type = 'sine'; fifth.frequency.value = base * 1.5; fifthGain.gain.value = .22;
+      lfo.type = 'sine'; lfo.frequency.value = 4.2; lfoGain.gain.value = .008;
+      filter.type = 'lowpass'; filter.frequency.value = 560;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(.058, now + .11);
+      body.connect(filter); fifth.connect(fifthGain); fifthGain.connect(filter); filter.connect(gain); gain.connect(out);
       lfo.connect(lfoGain); lfoGain.connect(gain.gain);
-      for (const o of [body, shimmer, lfo]) o.start(now);
-      this.sustains.set(id, { oscillators: [body, shimmer, lfo], gain });
+      for (const o of [body, fifth, lfo]) o.start(now);
+      this.sustains.set(id, { oscillators: [body, fifth, lfo], gain });
     });
   }
   stopHold(id: string) {
@@ -110,39 +135,46 @@ export class SoundBank {
     this.sustains.delete(id);
     try {
       const ctx = this.transport.ctx, now = ctx.currentTime;
-      sustain.gain.gain.setTargetAtTime(0.0001, now, .03);
-      for (const o of sustain.oscillators) o.stop(now + .2);
+      sustain.gain.gain.setTargetAtTime(0.0001, now, .04);
+      for (const o of sustain.oscillators) o.stop(now + .22);
     } catch { /* already stopped */ }
   }
   stopAllHolds() { for (const id of [...this.sustains.keys()]) this.stopHold(id); }
 
-  /** Rising shimmer when the live grade improves (level 0 = C … 3 = S). */
+  /** Gentle rising chime when the live grade improves (level 0 = C … 3 = S). */
   gradeUp(level: number) {
     this.run('sfx', (ctx, out, now) => {
-      const root = [523.25, 587.33, 659.25, 783.99][Math.max(0, Math.min(3, level))];
-      [1, 1.25, 1.5].forEach((ratio, i) => this.tone(ctx, out, now, { type: 'triangle', from: root * ratio, dur: .24, vol: .3, at: i * .07 }));
+      const root = [440, 493.88, 523.25, 587.33][Math.max(0, Math.min(3, level))];
+      [1, 1.25, 1.5].forEach((ratio, i) => this.tone(ctx, out, now, { type: 'sine', from: root * ratio, dur: .26, vol: .2, at: i * .075, attack: .01, filter: { type: 'lowpass', freq: 1400 } }));
     });
   }
   countdown(step: number | 'go') {
     this.run('sfx', (ctx, out, now) => {
-      if (step === 'go') { this.tone(ctx, out, now, { from: 990, dur: .28, vol: .4 }); this.tone(ctx, out, now, { from: 1485, dur: .22, vol: .18 }); }
-      else this.tone(ctx, out, now, { from: 660, dur: .13, vol: .32 });
+      if (step === 'go') {
+        this.tone(ctx, out, now, { type: 'sine', from: 587.33, dur: .24, vol: .24, attack: .008 });
+        this.tone(ctx, out, now, { type: 'sine', from: 880, dur: .2, vol: .14, attack: .008 });
+      } else {
+        this.tone(ctx, out, now, { type: 'sine', from: 440, to: 436, dur: .12, vol: .2, attack: .007 });
+      }
     });
   }
   ui(kind: UiSound) {
     this.run('ui', (ctx, out, now) => {
-      if (kind === 'click') this.tone(ctx, out, now, { from: 1500, to: 950, dur: .04, vol: .28 });
-      else if (kind === 'tick') this.tone(ctx, out, now, { from: 1900, dur: .018, vol: .12 });
-      else if (kind === 'open') this.tone(ctx, out, now, { type: 'triangle', from: 480, to: 840, dur: .13, vol: .28 });
-      else if (kind === 'close') this.tone(ctx, out, now, { type: 'triangle', from: 840, to: 480, dur: .12, vol: .26 });
-      else { this.tone(ctx, out, now, { from: 660, dur: .1, vol: .28 }); this.tone(ctx, out, now, { from: 880, dur: .14, vol: .28, at: .08 }); }
+      if (kind === 'click') this.tone(ctx, out, now, { type: 'sine', from: 520, to: 320, dur: .038, vol: .15, attack: .004 });
+      else if (kind === 'tick') this.tone(ctx, out, now, { type: 'sine', from: 680, to: 480, dur: .024, vol: .1, attack: .003 });
+      else if (kind === 'open') this.tone(ctx, out, now, { type: 'sine', from: 360, to: 540, dur: .12, vol: .16, attack: .008 });
+      else if (kind === 'close') this.tone(ctx, out, now, { type: 'sine', from: 540, to: 360, dur: .11, vol: .15, attack: .008 });
+      else {
+        this.tone(ctx, out, now, { type: 'sine', from: 440, dur: .1, vol: .16, attack: .007 });
+        this.tone(ctx, out, now, { type: 'sine', from: 587.33, dur: .14, vol: .16, at: .075, attack: .007 });
+      }
     });
   }
-  /** Result screen jingle; brighter and longer for higher grades. */
+  /** Warm result screen chord; fuller for higher grades. */
   fanfare(grade: string) {
     this.run('ui', (ctx, out, now) => {
-      const notes = ({ S: [523, 659, 784, 1047, 1319], A: [523, 659, 784, 1047], B: [523, 659, 784], C: [440, 523], D: [330, 262] } as Record<string, number[]>)[grade] || [440];
-      notes.forEach((freq, i) => this.tone(ctx, out, now, { type: 'triangle', from: freq, dur: .3, vol: .32, at: i * .11 }));
+      const notes = ({ S: [392, 493.88, 587.33, 783.99], A: [392, 493.88, 587.33], B: [349.23, 440, 523.25], C: [329.63, 392], D: [293.66, 261.63] } as Record<string, number[]>)[grade] || [392];
+      notes.forEach((freq, i) => this.tone(ctx, out, now, { type: 'sine', from: freq, dur: .34, vol: .2, at: i * .1, attack: .012, filter: { type: 'lowpass', freq: 1200 } }));
     });
   }
 }

@@ -58,7 +58,7 @@ export function pointToTarget(x: number, y: number, width: number, height: numbe
 /** Fixed path length covered during one `travelTimeMs`, so speed depends on song BPM only. */
 export function travelSpan(width: number, height: number) {
   const r = stageRect(width, height);
-  return Math.hypot(r.width, r.height) * .8;
+  return Math.hypot(r.width, r.height) * .46;
 }
 const direction = (note: Note) => { const a = note.entryAngleDeg * Math.PI / 180; return { x: Math.cos(a), y: Math.sin(a) }; };
 export function entryPoint(note: Note, width: number, height: number): Point {
@@ -121,55 +121,62 @@ function drawStageGrid(c: CanvasRenderingContext2D, width: number, height: numbe
 type TargetState = { hold: boolean; holding: boolean; progress: number; dual: boolean; litSides: Set<string>; done: boolean };
 // A recessed, bevelled socket. Highlights come from a fixed top-left light instead of glow.
 function drawTarget(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, s: TargetState) {
-  const R = 17.5 * u;
-  c.fillStyle = 'rgba(2,6,12,.42)'; c.beginPath(); c.ellipse(p.x + 1.2 * u, p.y + 3.2 * u, R * 1.03, R * .92, 0, 0, TAU); c.fill();
-  let g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
-  g.addColorStop(0, '#dfe7f1'); g.addColorStop(.45, '#76869c'); g.addColorStop(1, '#202a38');
-  c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = shade(color, s.holding ? .1 : -.25); c.lineWidth = 2.4 * u; circle(c, p.x, p.y, R * .83); c.stroke();
-  g = c.createRadialGradient(p.x - R * .25, p.y - R * .3, R * .1, p.x, p.y, R * .74);
-  g.addColorStop(0, s.holding ? '#33496a' : '#2a3a50'); g.addColorStop(1, '#0b131f');
-  c.fillStyle = g; circle(c, p.x, p.y, R * .7); c.fill();
-  c.lineCap = 'round';
-  c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.7 * u; c.beginPath(); c.arc(p.x, p.y, R * .7, Math.PI * .72, Math.PI * 1.78); c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.2 * u; c.beginPath(); c.arc(p.x, p.y, R * .7, -Math.PI * .28, Math.PI * .78); c.stroke();
-  // Embossed symbol: dark offset first, then the colored face.
-  c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = 'rgba(0,0,0,.65)';
-  drawSymbol(c, symbol, p.x + .9 * u, p.y + 1.2 * u, 8.6 * u, s.dual, 2.2 * u);
-  c.strokeStyle = color; c.fillStyle = color;
-  drawSymbol(c, symbol, p.x, p.y, 8.6 * u, s.dual, 2.2 * u);
+  const R = 20.25 * u, wellR = 15.75 * u;
+  c.fillStyle = 'rgba(2,6,12,.45)'; c.beginPath(); c.ellipse(p.x + 1.4 * u, p.y + 3.6 * u, R * 1.04, R * .93, 0, 0, TAU); c.fill();
   if (s.dual) {
-    // Split bezel: one arc per thumb. Lit arcs show which side has already landed.
-    for (const [side, from, to] of [['left', Math.PI * .6, Math.PI * 1.4], ['right', -Math.PI * .4, Math.PI * .4]] as const) {
-      c.lineWidth = 3.2 * u;
-      c.strokeStyle = s.done || s.litSides.has(side) ? shade(color, .55) : 'rgba(20,30,44,.9)';
-      c.beginPath(); c.arc(p.x, p.y, R + 3.4 * u, from, to); c.stroke();
+    // Dominant Dual Target chassis: outer gold-chrome crown + bold Left/Right wing brackets.
+    c.strokeStyle = 'rgba(255,220,115,.92)'; c.lineWidth = 2.6 * u; circle(c, p.x, p.y, R + 3.2 * u); c.stroke();
+    for (const [side, dir] of [['left', -1], ['right', 1]] as const) {
+      const lit = s.done || s.litSides.has(side), wx = p.x + dir * (R + 4.8 * u);
+      c.strokeStyle = 'rgba(2,6,12,.75)'; c.lineWidth = 4.6 * u; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(wx - dir * 3.5 * u, p.y - 9.5 * u); c.lineTo(wx + dir * 4.2 * u, p.y); c.lineTo(wx - dir * 3.5 * u, p.y + 9.5 * u); c.stroke();
+      c.strokeStyle = lit ? '#ffffff' : '#ffd875'; c.lineWidth = 2.8 * u;
+      c.beginPath(); c.moveTo(wx - dir * 3.5 * u, p.y - 9.5 * u); c.lineTo(wx + dir * 4.2 * u, p.y); c.lineTo(wx - dir * 3.5 * u, p.y + 9.5 * u); c.stroke();
     }
   }
+  let g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
+  g.addColorStop(0, s.dual ? '#fff3d1' : '#dfe7f1'); g.addColorStop(.45, s.dual ? '#c79b42' : '#76869c'); g.addColorStop(1, '#202a38');
+  c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
+  c.strokeStyle = shade(color, s.holding ? .15 : s.dual ? .05 : -.25); c.lineWidth = 2.6 * u; circle(c, p.x, p.y, R * .84); c.stroke();
+  g = c.createRadialGradient(p.x - R * .25, p.y - R * .3, R * .1, p.x, p.y, wellR);
+  g.addColorStop(0, s.holding ? '#33496a' : s.dual ? '#352f42' : '#2a3a50'); g.addColorStop(1, '#0b131f');
+  c.fillStyle = g; circle(c, p.x, p.y, wellR); c.fill();
+  if (s.dual) {
+    c.strokeStyle = 'rgba(255,220,115,.45)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, wellR * .82); c.stroke();
+  }
+  c.lineCap = 'round';
+  c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.8 * u; c.beginPath(); c.arc(p.x, p.y, wellR, Math.PI * .72, Math.PI * 1.78); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, wellR, -Math.PI * .28, Math.PI * .78); c.stroke();
+  // Embossed symbol: dark offset first, then the colored face.
+  c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = 'rgba(0,0,0,.65)';
+  drawSymbol(c, symbol, p.x + 1 * u, p.y + 1.3 * u, 9.6 * u, s.dual, 2.4 * u);
+  c.strokeStyle = s.dual ? '#fff7e0' : color; c.fillStyle = color;
+  drawSymbol(c, symbol, p.x, p.y, 9.6 * u, s.dual, (s.dual ? 2.6 : 2.35) * u);
   if (s.hold) {
-    const ring = R + 6.4 * u;
-    c.strokeStyle = 'rgba(4,8,14,.7)'; c.lineWidth = 4.4 * u; circle(c, p.x, p.y, ring); c.stroke();
-    c.strokeStyle = 'rgba(190,205,225,.28)'; c.lineWidth = 1.2 * u; circle(c, p.x, p.y, ring); c.stroke();
+    const ring = R + (s.dual ? 6.8 : 5.6) * u;
+    c.strokeStyle = 'rgba(4,8,14,.72)'; c.lineWidth = 4.6 * u; circle(c, p.x, p.y, ring); c.stroke();
+    c.strokeStyle = s.dual ? 'rgba(255,220,115,.42)' : 'rgba(190,205,225,.28)'; c.lineWidth = 1.4 * u; circle(c, p.x, p.y, ring); c.stroke();
     if (s.holding && s.progress > 0) {
-      c.strokeStyle = shade(color, .4); c.lineWidth = 4 * u;
+      c.strokeStyle = s.dual ? '#ffd875' : shade(color, .4); c.lineWidth = 4.2 * u;
       c.beginPath(); c.arc(p.x, p.y, ring, -Math.PI / 2, -Math.PI / 2 + TAU * s.progress); c.stroke();
     }
-    c.fillStyle = shade(color, s.holding ? .55 : .3); c.font = `800 ${8.5 * u}px "DM Sans","Segoe UI",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-    c.fillText(s.holding ? 'HOLDING' : 'HOLD', p.x, p.y + R + 17 * u);
+    c.fillStyle = s.dual ? '#ffe082' : shade(color, s.holding ? .55 : .3); c.font = `800 ${9 * u}px "DM Sans","Segoe UI",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+    c.fillText(s.holding ? 'HOLDING' : s.dual ? 'DUAL HOLD' : 'HOLD', p.x, p.y + ring + 11.5 * u);
   }
 }
 // Solid, clearly bounded lane between a Hold's head and its release marker. Rungs scroll with the tail.
-function drawHoldLane(c: CanvasRenderingContext2D, head: Point, tail: Point, u: number, color: string, holding: boolean) {
+function drawHoldLane(c: CanvasRenderingContext2D, head: Point, tail: Point, u: number, color: string, holding: boolean, dual = false) {
   const dx = tail.x - head.x, dy = tail.y - head.y, length = Math.hypot(dx, dy);
   if (length < 2) return;
-  const ux = dx / length, uy = dy / length, nx = -uy, ny = ux, width = 11 * u;
+  const ux = dx / length, uy = dy / length, nx = -uy, ny = ux, width = (dual ? 14.5 : 13) * u;
   c.lineCap = 'round';
   const line = (style: string, w: number) => { c.strokeStyle = style; c.lineWidth = w; c.beginPath(); c.moveTo(head.x, head.y); c.lineTo(tail.x, tail.y); c.stroke(); };
-  line('#070d15', width + 5 * u);
-  line(shade(color, holding ? -.05 : -.4), width);
-  line(shade(color, holding ? .5 : .1), width * .36);
-  c.lineCap = 'butt'; c.strokeStyle = 'rgba(7,13,21,.55)'; c.lineWidth = 1.6 * u;
-  const spacing = 15 * u;
+  line('#070d15', width + 5.5 * u);
+  if (dual) line('rgba(255,216,117,.75)', width + 2.6 * u);
+  line(shade(color, holding ? -.02 : -.38), width);
+  line(dual ? '#fff3c4' : shade(color, holding ? .52 : .12), width * .38);
+  c.lineCap = 'butt'; c.strokeStyle = 'rgba(7,13,21,.55)'; c.lineWidth = 1.7 * u;
+  const spacing = 16 * u;
   c.beginPath();
   for (let s = spacing, count = 0; s < length && count < 120; s += spacing, count++) {
     const px = tail.x - ux * s, py = tail.y - uy * s;
@@ -177,43 +184,62 @@ function drawHoldLane(c: CanvasRenderingContext2D, head: Point, tail: Point, u: 
   }
   c.stroke();
 }
-function drawReleaseMarker(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName) {
-  const r = 14 * u;
+function drawReleaseMarker(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual = false) {
+  const r = 17 * u;
   const diamond = (x: number, y: number, size: number) => { c.beginPath(); c.moveTo(x, y - size); c.lineTo(x + size, y); c.lineTo(x, y + size); c.lineTo(x - size, y); c.closePath(); };
-  c.fillStyle = 'rgba(2,6,12,.4)'; diamond(p.x + 1.2 * u, p.y + 3 * u, r); c.fill();
+  c.fillStyle = 'rgba(2,6,12,.44)'; diamond(p.x + 1.4 * u, p.y + 3.4 * u, r); c.fill();
+  if (dual) {
+    c.strokeStyle = '#ffd875'; c.lineWidth = 2.4 * u; diamond(p.x, p.y, r + 3 * u); c.stroke();
+  }
   const g = c.createLinearGradient(p.x - r, p.y - r, p.x + r, p.y + r);
-  g.addColorStop(0, shade(color, .35)); g.addColorStop(.55, shade(color, -.15)); g.addColorStop(1, shade(color, -.55));
+  g.addColorStop(0, shade(color, .38)); g.addColorStop(.55, shade(color, -.12)); g.addColorStop(1, shade(color, -.55));
   c.fillStyle = g; diamond(p.x, p.y, r); c.fill();
-  c.lineJoin = 'round'; c.strokeStyle = shade(color, -.65); c.lineWidth = 1.6 * u; c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.1 * u; diamond(p.x, p.y, r * .72); c.stroke();
-  c.fillStyle = '#f2f6fb'; c.strokeStyle = '#f2f6fb'; drawSymbol(c, symbol, p.x, p.y, 5.2 * u, true, 1.2 * u);
+  c.lineJoin = 'round'; c.strokeStyle = dual ? '#ffe082' : shade(color, -.65); c.lineWidth = 1.8 * u; c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.58)'; c.lineWidth = 1.2 * u; diamond(p.x, p.y, r * .72); c.stroke();
+  c.fillStyle = '#f2f6fb'; c.strokeStyle = '#f2f6fb'; drawSymbol(c, symbol, p.x, p.y, 7.2 * u, true, 1.4 * u);
 }
 // Tapered comet tail behind the note, opposite to its travel direction.
-function drawTrail(c: CanvasRenderingContext2D, p: Point, dir: Point, u: number, color: string, length: number, alpha: number) {
+function drawTrail(c: CanvasRenderingContext2D, p: Point, dir: Point, u: number, color: string, length: number, alpha: number, dual = false) {
   if (length < 3 || alpha <= 0) return;
-  const half = 12 * u, bx = p.x + dir.x * length, by = p.y + dir.y * length, nx = -dir.y, ny = dir.x;
+  const half = (dual ? 17 : 15) * u, bx = p.x + dir.x * length, by = p.y + dir.y * length, nx = -dir.y, ny = dir.x;
   const g = c.createLinearGradient(p.x, p.y, bx, by);
-  g.addColorStop(0, withAlpha(color, .5 * alpha)); g.addColorStop(1, withAlpha(color, 0));
+  g.addColorStop(0, withAlpha(color, (dual ? .62 : .5) * alpha)); g.addColorStop(1, withAlpha(color, 0));
   c.fillStyle = g; c.beginPath(); c.moveTo(p.x + nx * half, p.y + ny * half); c.lineTo(bx, by); c.lineTo(p.x - nx * half, p.y - ny * half); c.closePath(); c.fill();
   const core = c.createLinearGradient(p.x, p.y, bx, by);
-  core.addColorStop(0, `rgba(255,255,255,${.28 * alpha})`); core.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = core; c.beginPath(); c.moveTo(p.x + nx * half * .4, p.y + ny * half * .4); c.lineTo(p.x + dir.x * length * .7, p.y + dir.y * length * .7); c.lineTo(p.x - nx * half * .4, p.y - ny * half * .4); c.closePath(); c.fill();
+  core.addColorStop(0, dual ? `rgba(255,230,140,${.45 * alpha})` : `rgba(255,255,255,${.28 * alpha})`); core.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = core; c.beginPath(); c.moveTo(p.x + nx * half * .42, p.y + ny * half * .42); c.lineTo(p.x + dir.x * length * .74, p.y + dir.y * length * .74); c.lineTo(p.x - nx * half * .42, p.y - ny * half * .42); c.closePath(); c.fill();
 }
 // A convex disc: matte body, rim, inner bevel and an embossed white symbol.
-function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, solid: boolean, hold: boolean, alpha: number) {
-  const R = 14.5 * u;
+function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual: boolean, hold: boolean, alpha: number) {
+  const R = 17.75 * u;
   c.globalAlpha = alpha;
-  c.fillStyle = 'rgba(2,6,12,.38)'; c.beginPath(); c.ellipse(p.x + 1.5 * u, p.y + 3.4 * u, R * .96, R * .62, 0, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(2,6,12,.42)'; c.beginPath(); c.ellipse(p.x + 1.6 * u, p.y + 3.8 * u, R * .98, R * .65, 0, 0, TAU); c.fill();
+  if (dual) {
+    // Dominant Dual Note armor: bright gold outer ring + Left/Right chevron wings on the moving note.
+    c.strokeStyle = 'rgba(2,6,12,.75)'; c.lineWidth = 4.6 * u; circle(c, p.x, p.y, R + 2.8 * u); c.stroke();
+    c.strokeStyle = '#ffd875'; c.lineWidth = 2.4 * u; circle(c, p.x, p.y, R + 2.8 * u); c.stroke();
+    for (const dir of [-1, 1] as const) {
+      const wx = p.x + dir * (R + 4.6 * u);
+      c.strokeStyle = 'rgba(2,6,12,.8)'; c.lineWidth = 4.2 * u; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(wx - dir * 2.8 * u, p.y - 7.5 * u); c.lineTo(wx + dir * 3.6 * u, p.y); c.lineTo(wx - dir * 2.8 * u, p.y + 7.5 * u); c.stroke();
+      c.strokeStyle = '#fff5d6'; c.lineWidth = 2.4 * u;
+      c.beginPath(); c.moveTo(wx - dir * 2.8 * u, p.y - 7.5 * u); c.lineTo(wx + dir * 3.6 * u, p.y); c.lineTo(wx - dir * 2.8 * u, p.y + 7.5 * u); c.stroke();
+    }
+  }
   const g = c.createRadialGradient(p.x - R * .35, p.y - R * .4, R * .08, p.x, p.y, R * 1.05);
-  g.addColorStop(0, shade(color, .55)); g.addColorStop(.45, color); g.addColorStop(1, shade(color, -.5));
+  g.addColorStop(0, shade(color, dual ? .68 : .55)); g.addColorStop(.48, color); g.addColorStop(1, shade(color, -.5));
   c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = shade(color, -.65); c.lineWidth = 1.4 * u; circle(c, p.x, p.y, R); c.stroke();
-  c.lineCap = 'round'; c.strokeStyle = 'rgba(255,255,255,.26)'; c.lineWidth = 1.2 * u; c.beginPath(); c.arc(p.x, p.y, R * .8, Math.PI * .9, Math.PI * 1.65); c.stroke();
-  if (hold) { c.strokeStyle = 'rgba(240,245,252,.9)'; c.lineWidth = 1.8 * u; circle(c, p.x, p.y, R + 2.6 * u); c.stroke(); }
-  c.fillStyle = 'rgba(0,0,0,.35)'; c.strokeStyle = 'rgba(0,0,0,.35)';
-  drawSymbol(c, symbol, p.x + .8 * u, p.y + 1 * u, 7.4 * u, solid, 2 * u);
-  c.fillStyle = '#f3f6fa'; c.strokeStyle = '#f3f6fa';
-  drawSymbol(c, symbol, p.x, p.y, 7.4 * u, solid, 2 * u);
+  c.strokeStyle = dual ? '#ffe599' : shade(color, -.65); c.lineWidth = (dual ? 2 : 1.5) * u; circle(c, p.x, p.y, R); c.stroke();
+  if (dual) {
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, R * .78); c.stroke();
+  } else {
+    c.lineCap = 'round'; c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, R * .8, Math.PI * .9, Math.PI * 1.65); c.stroke();
+  }
+  if (hold) { c.strokeStyle = dual ? '#ffe082' : 'rgba(240,245,252,.92)'; c.lineWidth = 2 * u; circle(c, p.x, p.y, R + (dual ? 5.2 : 2.8) * u); c.stroke(); }
+  c.fillStyle = 'rgba(0,0,0,.42)'; c.strokeStyle = 'rgba(0,0,0,.42)';
+  drawSymbol(c, symbol, p.x + .9 * u, p.y + 1.1 * u, 10.2 * u, dual, 2.35 * u);
+  c.fillStyle = dual ? '#fff8e6' : '#f3f6fa'; c.strokeStyle = dual ? '#ffffff' : '#f3f6fa';
+  drawSymbol(c, symbol, p.x, p.y, 10.2 * u, dual, (dual ? 2.5 : 2.3) * u);
   c.globalAlpha = 1;
 }
 
@@ -231,9 +257,9 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
   const items = visible.map(group => {
     const n = group[0], hold = n.type === 'hold', holding = group.some(item => item.state === 'holding');
     const target = targetPoint(n, width, height), point = notePoint(n, timeMs, width, height);
-    const remaining = (n.timeMs - timeMs) / n.travelTimeMs;
+    const remaining = (n.timeMs - timeMs) / n.travelTimeMs, dual = group.dual && group.length > 1;
     return { group, n, hold, holding, target, point, tail: hold ? tailPoint(n, timeMs, width, height) : undefined, color: COLORS[SYMBOLS.indexOf(n.symbol)], remaining, dir: direction(n),
-      state: { hold, holding, dual: group.dual && group.length > 1, done: false, litSides: new Set(group.flatMap(item => [...(item.unit?.presses.keys() || [])])),
+      state: { hold, holding, dual, done: false, litSides: new Set(group.flatMap(item => [...(item.unit?.presses.keys() || [])])),
         progress: hold ? clamp01((timeMs - n.timeMs) / (n.durationMs || 1)) : 0 } as TargetState };
   });
   const chordPoints = new Map<string, Point>();
@@ -243,18 +269,18 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
     if (previous) { c.strokeStyle = 'rgba(199,217,237,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(previous.x, previous.y); c.lineTo(target.x, target.y); c.stroke(); }
     chordPoints.set(group.chordKey, target);
   }
-  for (const it of items) if (it.hold) drawHoldLane(c, it.holding || it.remaining <= 0 ? it.target : it.point, it.tail!, u, it.color, it.holding);
+  for (const it of items) if (it.hold) drawHoldLane(c, it.holding || it.remaining <= 0 ? it.target : it.point, it.tail!, u, it.color, it.holding, it.state.dual);
   for (const it of items) drawTarget(c, it.target, u, it.color, it.n.symbol, it.state);
-  for (const it of items) if (it.hold) drawReleaseMarker(c, it.tail!, u, it.color, it.n.symbol);
+  for (const it of items) if (it.hold) drawReleaseMarker(c, it.tail!, u, it.color, it.n.symbol, it.state.dual);
   for (const it of items) {
     if (it.holding) continue;
     const dist = Math.hypot(it.point.x - it.target.x, it.point.y - it.target.y), alpha = clamp01((1 - it.remaining) / .12);
-    drawTrail(c, it.point, it.dir, u, it.color, Math.min(70 * u, dist), alpha);
+    drawTrail(c, it.point, it.dir, u, it.color, Math.min(76 * u, dist), alpha, it.state.dual);
     drawNote(c, it.point, u, it.color, it.n.symbol, it.state.dual, it.hold, alpha);
   }
   for (const it of items) {
     if (!it.group.some(n => n.id === selected)) continue;
-    const half = 17.5 * u + 7 * u;
+    const half = 20.25 * u + 7 * u;
     c.strokeStyle = '#fff'; c.lineWidth = 2; c.strokeRect(it.target.x - half, it.target.y - half, half * 2, half * 2);
   }
   c.lineCap = 'butt';

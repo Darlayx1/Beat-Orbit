@@ -4,7 +4,7 @@ import { Repository, storageMessage } from './storage';
 import { COLORS, drawStage, drawSymbol, groupNotes, pointToTarget, stageScale, symbolSVG, targetPoint, type NoteGroup } from './stage';
 import { downloadJSON, esc, icon, toast } from './ui';
 
-type Tool = 'select' | 'tap' | 'hold' | 'dual' | 'erase' | 'pan';
+type Tool = 'select' | 'tap' | 'hold' | 'dual' | 'dual-hold' | 'erase' | 'pan';
 type Gesture = { pointer: number; startX: number; startY: number; startScroll: number; time: number; lane: number; note?: Note; mode: 'move' | 'resize' | 'pan' | 'place'; moved: boolean; preview?: Note };
 const signature = (chart: Chart) => JSON.stringify({ ...chart, revision: 0, updatedAt: '' });
 export class Studio {
@@ -68,7 +68,7 @@ export class Studio {
       </div>
       <div class="editor-layout">
         <aside class="tools panel"><span class="eyebrow">TOOLS</span>
-          ${([['select','select','Select'],['tap','plus','Tap note'],['hold','clock','Hold note'],['dual','grid','Dual note'],['erase','trash','Eraser'],['pan','hand','Pan']] as const).map(([tool, ico, label]) => `<button data-tool="${tool}" title="${label}" aria-label="${label}" class="tool ${this.tool === tool ? 'active' : ''}">${icon(ico)}<span>${label}</span></button>`).join('')}
+          ${([['select','select','Select'],['tap','plus','Tap note'],['hold','clock','Hold note'],['dual','grid','Dual note'],['dual-hold','clock','Dual hold'],['erase','trash','Eraser'],['pan','hand','Pan']] as const).map(([tool, ico, label]) => `<button data-tool="${tool}" title="${label}" aria-label="${label}" class="tool ${this.tool === tool ? 'active' : ''}">${icon(ico)}<span>${label}</span></button>`).join('')}
           <span class="eyebrow symbol-heading">SYMBOL</span><div class="symbol-tools">${GLYPHS.map((g,i) => `<button data-symbol="${i}" style="--note-color:${COLORS[i]}" class="${this.symbol === i ? 'active' : ''}" aria-label="${SYMBOLS[i]} symbol">${g}</button>`).join('')}</div>
           <label class="second-symbol">DUAL PARTNER<select id="second-symbol">${GLYPHS.map((g,i) => `<option value="${i}" ${this.secondSymbol === i ? 'selected' : ''}>${g} ${SYMBOLS[i]}</option>`).join('')}</select></label>
         </aside>
@@ -259,15 +259,20 @@ export class Studio {
       if (input.id === 'chart-offset') c.timing.offsetMs = Number(value);
       if (input.id === 'chart-meter') c.timing.timeSignature.numerator = Number(value);
       const n = c.notes.find(n => n.id === this.selected); if (!n) return;
+      const group = groupNotes(c.notes).find(g => g.some(item => item.id === n.id)) || [n];
       if (['note-target-x','note-target-y','note-entry','note-travel'].includes(input.id)) {
-        const group=groupNotes(c.notes).find(g=>g.some(item=>item.id===n.id))||[n];
         for(const item of group){if(input.id==='note-target-x')item.target.x=snapTargetCoord(Number(value));if(input.id==='note-target-y')item.target.y=snapTargetCoord(Number(value));if(input.id==='note-entry')item.entryAngleDeg=Number(value);if(input.id==='note-travel')item.travelTimeMs=bpmTravelTimeMs(c.timing.bpm);}
       }
-      if (input.id === 'note-time') n.timeMs = Number(value);
-      if (input.id === 'note-duration') n.durationMs = Number(value);
-      if (input.id === 'note-symbol') n.symbol = value as Note['symbol'];
+      if (input.id === 'note-time') for (const item of group) item.timeMs = Number(value);
+      if (input.id === 'note-duration') for (const item of group) item.durationMs = Number(value);
+      if (input.id === 'note-symbol') for (const item of group) item.symbol = value as Note['symbol'];
       if (input.id === 'note-side') n.side = value as Note['side'];
-      if (input.id === 'note-type') { n.type = value as Note['type']; if (n.type === 'hold') n.durationMs = 60000 / c.timing.bpm; else delete n.durationMs; }
+      if (input.id === 'note-type') {
+        for (const item of group) {
+          item.type = value as Note['type'];
+          if (item.type === 'hold') item.durationMs = 60000 / c.timing.bpm; else delete item.durationMs;
+        }
+      }
     });
   };
   private key = (e: KeyboardEvent) => {
@@ -318,20 +323,35 @@ export class Studio {
   private up = (e: PointerEvent) => {
     const g = this.gesture; if (!g || g.pointer !== e.pointerId) return;
     this.gesture = undefined;
-    if (g.preview) { this.edit(c => { const i = c.notes.findIndex(n => n.id === g.note!.id); if (i >= 0) c.notes[i] = g.preview!; }); return; }
-    if (g.mode !== 'place' || g.moved || !['tap','hold','dual'].includes(this.tool)) return;
+    if (g.preview) {
+      this.edit(c => {
+        const group = groupNotes(c.notes).find(grp => grp.some(item => item.id === g.note!.id));
+        if (group && group.dual && group.length > 1) {
+          for (const item of group) {
+            item.timeMs = g.preview!.timeMs;
+            item.symbol = g.preview!.symbol;
+            if (g.preview!.durationMs !== undefined) item.durationMs = g.preview!.durationMs;
+          }
+        } else {
+          const i = c.notes.findIndex(n => n.id === g.note!.id);
+          if (i >= 0) c.notes[i] = g.preview!;
+        }
+      });
+      return;
+    }
+    if (g.mode !== 'place' || g.moved || !['tap','hold','dual','dual-hold'].includes(this.tool)) return;
     const time = this.snapping ? snapTime(g.time, this.chart, this.snap) : g.time;
     this.place(time,g.lane);
   };
   private place(time: number, lane: number) {
     if (time >= this.song.durationMs) return;
-    const stepIndex = this.chart.notes.length;
-    const note: Note = { ...defaultLayout(SYMBOLS[lane], this.chart.timing.bpm, stepIndex, this.snap), id: uid(), type: this.tool === 'hold' ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
+    const stepIndex = this.chart.notes.length, isHold = this.tool === 'hold' || this.tool === 'dual-hold', isDual = this.tool === 'dual' || this.tool === 'dual-hold';
+    const note: Note = { ...defaultLayout(SYMBOLS[lane], this.chart.timing.bpm, stepIndex, this.snap), id: uid(), type: isHold ? 'hold' : 'tap', symbol: SYMBOLS[lane], side: 'either', timeMs: time };
     this.symbol = lane;
     if (note.type === 'hold') note.durationMs = Math.min(60000 / this.chart.timing.bpm, this.song.durationMs - time);
     this.selected = note.id;
     this.edit(c => {
-      if (this.tool === 'dual') {
+      if (isDual) {
         const chordId = uid(); note.chordId = chordId;
         const other: Note = { ...clone(note), ...(SYMBOLS[this.secondSymbol]!==note.symbol?defaultLayout(SYMBOLS[this.secondSymbol], this.chart.timing.bpm, stepIndex, this.snap):{}), id: uid(), symbol: SYMBOLS[this.secondSymbol] };
         if (other.symbol === note.symbol) { note.side = 'left'; other.side = 'right'; }

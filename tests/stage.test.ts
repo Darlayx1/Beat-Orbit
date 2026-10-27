@@ -98,7 +98,7 @@ describe('pause/resume Holds',()=>{
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
     game.press('old','triangle','left',1000);game.suspendInputs();game.release('old',1200);
     expect(game.score).toBe(1000);game.press('new','triangle','left',1300);game.update(1980);game.release('new',2000);game.update(2200);
-    expect(game.score).toBe(2000);expect(game.counts.perfect).toBe(2);expect(game.combo).toBe(2);expect(game.complete).toBe(true);
+    expect(game.score).toBe(2400);expect(game.counts.perfect).toBe(2);expect(game.combo).toBe(2);expect(game.complete).toBe(true);
   });
   it('misses an unclaimed suspended Hold without leaving it stuck',()=>{
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));

@@ -223,18 +223,22 @@ function renderResults(result: Result, playtest: boolean, record=false) {
   const grade=gradeFor(result.accuracy),total=Math.max(1,result.perfect+result.great+result.good+result.miss);
   const badges=[result.miss===0&&result.good===0&&result.perfect+result.great>0?(result.great+result.good+result.miss===0?'ALL PERFECT':'FULL COMBO'):'',record?'NEW RECORD':''].filter(Boolean);
   shell('play',`<section class="results-view rb"><div class="rb-shell">
-    <div class="rb-head"><span class="eyebrow">${playtest?'STUDIO PLAYTEST':'ORBIT COMPLETE'}</span><h1>Your rhythm, realized.</h1><p class="rb-sub">${esc(result.title)} <span>·</span> ${esc(lastChart?.difficulty||'normal')}</p>${badges.length?`<div class="rb-badges">${badges.map((b,i)=>`<span class="rb-badge" style="--i:${i}">${b}</span>`).join('')}</div>`:''}</div>
+    <header class="rb-head"><div class="rb-title-group"><span class="eyebrow">${playtest?'STUDIO PLAYTEST':'ORBIT COMPLETE'}</span><h1>Your rhythm, realized.</h1><p class="rb-sub">${esc(result.title)} <span>·</span> <b class="play-difficulty diff-${esc(lastChart?.difficulty||'normal')}">${esc(lastChart?.difficulty||'normal')}</b></p></div>${badges.length?`<div class="rb-badges">${badges.map((b,i)=>`<span class="rb-badge" style="--i:${i}">${b}</span>`).join('')}</div>`:''}</header>
     <div class="rb-body">
-      <div class="rb-emblem grade-${grade.toLowerCase()}"><i class="rb-ring"></i><b>${grade}</b><small>GRADE</small></div>
-      <div class="rb-data">
-        <div class="rb-score"><b id="rb-score-value">0</b><small>FINAL SCORE</small></div>
-        <div class="rb-metrics"><div><strong>${result.accuracy.toFixed(2)}<small>%</small></strong><span>ACCURACY</span></div><div><strong>${result.maxCombo}<small>×</small></strong><span>MAX COMBO</span></div></div>
-        <div class="rb-judges">${(['perfect','great','good','miss'] as const).map((j,i)=>`<div class="rb-judge ${j}" style="--i:${i}"><span>${j.toUpperCase()}</span><div class="rb-bar"><i style="--w:${(result[j]/total*100).toFixed(1)}%"></i></div><b>${result[j]}</b></div>`).join('')}</div>
+      <div class="rb-hero-card">
+        <div class="rb-emblem grade-${grade.toLowerCase()}"><i class="rb-ring"></i><b>${grade}</b><small>GRADE</small></div>
+        <div class="rb-summary">
+          <div class="rb-score"><small>FINAL SCORE</small><b id="rb-score-value">0</b></div>
+          <div class="rb-metrics"><div><span>ACCURACY</span><strong>${result.accuracy.toFixed(2)}<small>%</small></strong></div><div><span>MAX COMBO</span><strong>${result.maxCombo}<small>×</small></strong></div></div>
+        </div>
       </div>
+      <div class="rb-judges">${(['perfect','great','good','miss'] as const).map((j,i)=>`<div class="rb-judge ${j}" style="--i:${i}"><span>${j.toUpperCase()}</span><div class="rb-bar"><i style="--w:${(result[j]/total*100).toFixed(1)}%"></i></div><b>${result[j]}</b></div>`).join('')}</div>
     </div>
-    <p class="small-muted rb-foot">${playtest?'Playtest results are not added to your session history.':'Saved with chart revision '+result.revision+' · BeatOrbit Standard v1'}</p>
-    <div class="rb-actions"><button class="button ghost" data-action="result-return">${icon('back')} ${playtest?'Back to Studio':'Music Library'}</button><button class="button primary" data-action="retry">${icon('play')} Play again</button>${playtest?'':'<button class="button ghost" data-action="result-edit">'+icon('studio')+' Edit chart</button>'}</div>
-  </div></section>`);
+    <footer class="rb-footer">
+      <p class="small-muted rb-foot">${playtest?'Playtest results are not added to your session history.':'Saved with chart revision '+result.revision+' · BeatOrbit Standard v1'}</p>
+      <div class="rb-actions"><button class="button primary" data-action="retry">${icon('play')} Play again</button><button class="button ghost" data-action="result-return">${icon('back')} ${playtest?'Back to Studio':'Music Library'}</button>${playtest?'':'<button class="button ghost" data-action="result-edit">'+icon('studio')+' Edit chart</button>'}</div>
+    </footer>
+  </div></section>`,true);
   countUp(app.querySelector<HTMLElement>('#rb-score-value'),result.score);
   transport.sfx.fanfare(grade);
 }
@@ -439,7 +443,10 @@ async function init() {
         const beat=60000/config.bpm;
         for(let n=0,time=beat*8;time<song.durationMs-4000;n++,time+=beat*(i===2?2:1)){
           const layout={...defaultLayout(SYMBOLS[n%4],config.bpm,n,16),entryAngleDeg:n%8*45};
-          if(n%12===8){const chord=uid();chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'left',timeMs:time,chordId:chord},{...layout,id:uid(),symbol:SYMBOLS[n%4],type:'tap',side:'right',timeMs:time,chordId:chord});}
+          if(n%12===8){
+            const chord=uid(),dualHold=n%24===20,holdProps=dualHold?{type:'hold' as const,durationMs:beat}:{type:'tap' as const};
+            chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],...holdProps,side:'left',timeMs:time,chordId:chord},{...layout,id:uid(),symbol:SYMBOLS[n%4],...holdProps,side:'right',timeMs:time,chordId:chord});
+          }
           else chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat}:{})});
         }
         demoSongs.push(song);audio.push(blob);demoCharts.push(chart);

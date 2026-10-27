@@ -41,8 +41,14 @@ describe('Studio DOM interactions',()=>{
     const dual=studio!.chart.notes.filter(n=>n.timeMs===3000);
     expect(dual.map(n=>n.side).sort()).toEqual(['left','right']);
     expect(dual[0].chordId).toBe(dual[1].chordId);
-    click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(2);
+    click('[data- editor="undo"]'.replace(' ',''));expect(studio!.chart.notes).toHaveLength(2);
     click('[data-editor="redo"]');expect(studio!.chart.notes).toHaveLength(4);
+    click('[data-tool="dual-hold"]');
+    pointer(canvas,'pointerdown',485,126);pointer(canvas,'pointerup',485,126);
+    const dualHold=studio!.chart.notes.filter(n=>n.timeMs===4000);
+    expect(dualHold).toHaveLength(2);
+    expect(dualHold.every(n=>n.type==='hold'&&n.durationMs===500)).toBe(true);
+    expect(dualHold.map(n=>n.side).sort()).toEqual(['left','right']);
   });
   it('moves and resizes with one history step per completed gesture',async()=>{
     const {canvas}=await mount([tap(1000,{symbol:'circle',type:'hold',durationMs:500})]);

@@ -7,7 +7,7 @@ export type Feedback = Judgement | 'perfect?' | 'great?' | 'good?';
 export type JudgePart = 'tap' | 'head' | 'tail';
 // A matching Dual (same symbol, Left + Right) is judged as one unit and counts as one hit.
 type DualUnit = { presses: Map<Side, { owner: string; time: number }>; releases: Map<Side, number> };
-type RuntimeNote = Note & { state: 'pending' | 'holding' | 'done'; lead: boolean; judgement?: Judgement; owner?: string; head?: Judgement; boundSide?: Side; partner?: RuntimeNote; unit?: DualUnit };
+type RuntimeNote = Note & { state: 'pending' | 'holding' | 'done'; lead: boolean; judgement?: Judgement; owner?: string; head?: Judgement; boundSide?: Side; partner?: RuntimeNote; unit?: DualUnit; holdTicks?: number };
 const judgeFor = (delta: number): Judgement => delta <= WINDOWS.perfect ? 'perfect' : delta <= WINDOWS.great ? 'great' : 'good';
 export class Gameplay {
   notes: RuntimeNote[];
@@ -81,8 +81,9 @@ export class Gameplay {
     if (a.type === 'hold') {
       for (const n of [a, b]) {
         n.state = 'holding'; n.head = judge; n.boundSide = n.side; n.owner = unit.presses.get(n.side as Side)!.owner;
-        this.holds.set(n.owner, n); this.onHold?.(n, true);
+        this.holds.set(n.owner, n);
       }
+      this.onHold?.(a, true);
       this.recordJudge(a, judge, 'head');
     } else this.finish(a, judge, 'tap');
     return true;
@@ -95,18 +96,27 @@ export class Gameplay {
     const endTime = note.timeMs + note.durationMs!;
     const delta = Math.abs(time - endTime);
     if (cancelled || delta > WINDOWS.good) { this.finish(note, 'miss', 'tail'); return; }
+    this.tickHold(note, time);
     if (note.unit) {
       // Both thumbs must let go inside the window; the worse release decides the judgement.
       note.unit.releases.set(note.boundSide!, delta);
-      this.onHold?.(note, false);
       if (note.unit.releases.size < 2) return;
       this.finish(note.lead ? note : note.partner!, judgeFor(Math.max(...note.unit.releases.values())), 'tail');
       return;
     }
     this.finish(note, judgeFor(delta), 'tail');
   }
+  private tickHold(n: RuntimeNote, time: number) {
+    const lead = n.lead ? n : n.partner!;
+    const elapsed = Math.max(0, Math.min(time, lead.timeMs + (lead.durationMs || 0)) - lead.timeMs);
+    const ticks = Math.floor(elapsed / 25), prev = lead.holdTicks || 0;
+    if (ticks > prev) { this.score += (ticks - prev) * 10; lead.holdTicks = ticks; }
+  }
   update(time: number) {
-    for (const [owner, n] of this.holds) if (time > n.timeMs + n.durationMs! + WINDOWS.good) { this.holds.delete(owner); this.finish(n, 'miss', 'tail'); }
+    for (const [owner, n] of this.holds) {
+      if (time > n.timeMs + n.durationMs! + WINDOWS.good) { this.holds.delete(owner); this.finish(n, 'miss', 'tail'); }
+      else this.tickHold(n, time);
+    }
     for (const n of this.suspended) if (time > n.timeMs + n.durationMs! + WINDOWS.good) { this.suspended.delete(n); this.finish(n, 'miss', 'tail'); }
     while (this.cursor < this.notes.length && this.notes[this.cursor].timeMs < time - WINDOWS.good) {
       const n = this.notes[this.cursor++];
