@@ -1,7 +1,7 @@
 import { DIFFICULTIES, EditorDocument, GLYPHS, STAGE_GRID, SYMBOLS, bpmTravelTimeMs, clone, defaultLayout, exactTime, formatTime, parseChart, snapTarget, snapTargetCoord, snapTime, sortNotes, uid, validatePlayable, type Chart, type Note, type Song } from './domain';
 import { AudioTransport, waveform } from './audio';
 import { Repository, storageMessage } from './storage';
-import { COLORS, drawStage, drawSymbol, groupNotes, symbolSVG, targetPoint, type NoteGroup } from './stage';
+import { COLORS, drawStage, drawSymbol, groupNotes, pointToTarget, stageScale, symbolSVG, targetPoint, type NoteGroup } from './stage';
 import { downloadJSON, esc, icon, toast } from './ui';
 
 type Tool = 'select' | 'tap' | 'hold' | 'dual' | 'erase' | 'pan';
@@ -341,13 +341,14 @@ export class Studio {
   }
   private cancel = () => { this.gesture = undefined; };
   private stagePosition(e: PointerEvent) {
-    const rect=this.stage!.getBoundingClientRect(), inset=Math.min(28,rect.width*.08,rect.height*.08);
-    return snapTarget({ x:Math.max(.08,Math.min(.92,(e.clientX-rect.left-inset)/(rect.width-2*inset))), y:Math.max(.08,Math.min(.92,(e.clientY-rect.top-inset)/(rect.height-2*inset))) });
+    // Same 16:9 mapping as gameplay, so a dragged target lands exactly where it will be played.
+    const rect=this.stage!.getBoundingClientRect();
+    return snapTarget(pointToTarget(e.clientX-rect.left,e.clientY-rect.top,rect.width,rect.height));
   }
   private stageDown = (e: PointerEvent) => {
     if(e.button!==0||this.stageDrag)return;
-    const rect=this.stage!.getBoundingClientRect();
-    const near=this.chart.notes.filter(n=>Math.abs(n.timeMs-this.transport.nowMs)<=n.travelTimeMs).find(n=>{const p=targetPoint(n,rect.width,rect.height);return Math.hypot(p.x-e.clientX+rect.left,p.y-e.clientY+rect.top)<30;});
+    const rect=this.stage!.getBoundingClientRect(),reach=Math.max(24,26*stageScale(rect.width,rect.height));
+    const near=this.chart.notes.filter(n=>Math.abs(n.timeMs-this.transport.nowMs)<=n.travelTimeMs).find(n=>{const p=targetPoint(n,rect.width,rect.height);return Math.hypot(p.x-e.clientX+rect.left,p.y-e.clientY+rect.top)<reach;});
     if(near)this.selected=near.id;
     const n=this.chart.notes.find(n=>n.id===this.selected);if(!n)return;
     e.preventDefault();this.stage!.setPointerCapture(e.pointerId);this.transport.pause();
@@ -371,7 +372,7 @@ export class Studio {
       context.setTransform(scale,0,0,scale,0,0);
       const groups=this.stageDrag?this.stageGroups.map(group=>Object.assign(group.map(n=>this.stageDrag!.ids.includes(n.id)?{...n,target:this.stageDrag!.target}:n),{dual:group.dual,chordKey:group.chordKey})):this.stageGroups;
       drawStage(context,this.stage.width/scale,this.stage.height/scale,groups,now,this.selected);
-      if(this.selected){const n=this.chart.notes.find(n=>n.id===this.selected);if(n&&(now<n.timeMs-n.travelTimeMs||now>n.timeMs+(n.durationMs||0)+135)){const p=targetPoint({...n,target:this.stageDrag?.target||n.target},this.stage.width/scale,this.stage.height/scale);context.strokeStyle='#fff';context.fillStyle='#fff';drawSymbol(context,n.symbol,p.x,p.y,15,!!n.chordId);}}
+      if(this.selected){const n=this.chart.notes.find(n=>n.id===this.selected);if(n&&(now<n.timeMs-n.travelTimeMs||now>n.timeMs+(n.durationMs||0)+135)){const sw=this.stage.width/scale,sh=this.stage.height/scale,p=targetPoint({...n,target:this.stageDrag?.target||n.target},sw,sh);context.strokeStyle='#fff';context.fillStyle='#fff';drawSymbol(context,n.symbol,p.x,p.y,8.6*stageScale(sw,sh),!!n.chordId);}}
       const scrub=this.root.querySelector<HTMLInputElement>('#stage-scrub')!;if(document.activeElement!==scrub)scrub.value=String(now);
     }
     if (this.transport.isPlaying && this.follow && (now / 1000 * this.zoom - this.scroll > w * 0.78 || now / 1000 * this.zoom < this.scroll)) this.viewport.scrollLeft = Math.max(0, now / 1000 * this.zoom - w * 0.25);

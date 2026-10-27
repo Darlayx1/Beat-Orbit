@@ -89,7 +89,7 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   await expect(page.locator('#game-overlay')).toBeVisible();
   await page.locator('[data-play="resume"]').click();
   await expect(page.locator('#game-overlay')).toBeHidden();
-  for(const viewport of [{width:390,height:844},{width:844,height:390},{width:667,height:375},{width:568,height:320},{width:320,height:568}]){
+  for(const viewport of [{width:844,height:390},{width:667,height:375},{width:568,height:320}]){
     await page.setViewportSize(viewport);
     await expectImmersivePlay(page);
   }
@@ -101,10 +101,13 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   });
   await expectImmersivePlay(page,47);
   await page.locator('.game-stage').evaluate(el=>el.removeAttribute('style'));
+  // Portrait viewports enforce the mandatory widescreen guard and auto-pause gameplay.
   await page.setViewportSize({width:390,height:844});
-  await expectImmersivePlay(page);
+  await expect(page.locator('#widescreen-guard')).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('controllers-portrait.png'),fullPage:true});
-  await page.locator('[data-play="pause"]').click();
+  await page.setViewportSize({width:844,height:390});
+  await expect(page.locator('#widescreen-guard')).toBeHidden();
+  await expect(page.locator('#game-overlay')).toBeVisible();
   await page.locator('#game-overlay [data-play="exit"]').click();
   await expect(page.locator('.track-row')).toHaveCount(3);
   await expect(page.locator('.app-header')).toBeVisible();

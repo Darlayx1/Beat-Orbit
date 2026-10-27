@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AudioTransport, makeDemoAudio, waveform } from '../src/audio';
+import { AudioTransport, DEFAULT_AUDIO_SETTINGS, loadAudioSettings, makeDemoAudio, sanitizeAudioSettings, waveform } from '../src/audio';
 
 class Source {
   buffer:unknown;onended:(()=>void)|null=null;active=false;startedAt=0;offset=0;
@@ -20,6 +20,42 @@ class MockContext {
 }
 beforeEach(()=>vi.stubGlobal('AudioContext',MockContext));
 afterEach(()=>vi.unstubAllGlobals());
+class ToneContext extends MockContext {
+  oscillators=0;stopped=0;
+  createGain(){return{gain:{value:1,setTargetAtTime(){},setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}};}
+  createOscillator(){const ctx=this;ctx.oscillators++;return{type:'',frequency:{value:0,setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){},start(){},stop(){ctx.stopped++;}};}
+  createBiquadFilter(){return{type:'',frequency:{value:0},Q:{value:0},connect(){}};}
+  createBuffer(){return{getChannelData:()=>new Float32Array(16)};}
+}
+describe('audio settings and sound effects',()=>{
+  it('clamps invalid values, keeps valid ones and migrates the old master volume',()=>{
+    const clean=sanitizeAudioSettings({master:5,music:-1,offsetMs:999,hitPreset:'nope' as never,muted:true});
+    expect(clean).toMatchObject({master:1,music:0,offsetMs:200,hitPreset:DEFAULT_AUDIO_SETTINGS.hitPreset,muted:true});
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>key==='beatorbit-volume'?'0.3':null,setItem(){}});
+    expect(loadAudioSettings()).toMatchObject({master:.3,sfx:DEFAULT_AUDIO_SETTINGS.sfx});
+  });
+  it('persists settings changes',()=>{
+    const store=new Map<string,string>();
+    vi.stubGlobal('localStorage',{getItem:(k:string)=>store.get(k)??null,setItem:(k:string,v:string)=>void store.set(k,v)});
+    const audio=new AudioTransport();audio.updateSettings({sfx:.25,hitPreset:'synth',offsetMs:-30});
+    expect(JSON.parse(store.get('beatorbit-audio-settings')!)).toMatchObject({sfx:.25,hitPreset:'synth',offsetMs:-30});
+    expect(loadAudioSettings()).toMatchObject({sfx:.25,hitPreset:'synth',offsetMs:-30});
+  });
+  it('synthesises hits, wrong presses and hold sustain locally, and honours mute and sustain toggles',()=>{
+    vi.stubGlobal('AudioContext',ToneContext);
+    const audio=new AudioTransport(),ctx=()=>MockContext.latest as ToneContext;
+    audio.sfx.hit('perfect',0);expect(ctx().oscillators).toBeGreaterThan(0);
+    const before=ctx().oscillators;audio.sfx.hit('wrong',1);expect(ctx().oscillators-before).toBe(2);
+    audio.sfx.startHold('note',2);const started=ctx().oscillators;expect(started).toBeGreaterThan(before+2);
+    audio.sfx.stopHold('note');expect(ctx().stopped).toBeGreaterThan(0);
+    audio.updateSettings({holdSustain:false});audio.sfx.startHold('other',0);expect(ctx().oscillators).toBe(started);
+    audio.updateSettings({muted:true});audio.sfx.hit('perfect',0);audio.sfx.ui('click');expect(ctx().oscillators).toBe(started);
+  });
+  it('never throws when the audio context cannot synthesise',()=>{
+    const audio=new AudioTransport();
+    expect(()=>{audio.sfx.hit('good',0);audio.sfx.startHold('x',0);audio.sfx.gradeUp(2);audio.sfx.fanfare('S');}).not.toThrow();
+  });
+});
 describe('audio clock and source lifecycle',()=>{
   it('loads audio and derives time from the audio clock rather than frames',async()=>{
     const audio=new AudioTransport();await audio.load(new Blob(['audio']));await audio.play();

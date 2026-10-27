@@ -6,7 +6,7 @@ import '@fontsource/barlow-condensed/latin-700.css';
 import '@fontsource/barlow-condensed/latin-800.css';
 import './style.css';
 import { DIFFICULTIES, GLYPHS, LIMITS, SYMBOLS, clone, defaultLayout, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
-import { AudioTransport, makeDemoAudioAsync } from './audio';
+import { AudioTransport, DEFAULT_AUDIO_SETTINGS, HIT_PRESETS, makeDemoAudioAsync, type AudioSettings } from './audio';
 import { Repository, storageMessage } from './storage';
 import { symbolSVG } from './stage';
 import { BootSession } from './boot';
@@ -24,12 +24,29 @@ let loadedSong: string | undefined, previewSong: string | undefined;
 let filter: 'all' | 'imported' | 'demo' = 'all', search = '', sort = 'recent';
 let importOperation = 0;
 let latestResult: Result | undefined, resultPlaytest = false, lastChart: Chart | undefined, lastSong: Song | undefined;
-let volume = .65;
-try { volume = Number(localStorage.getItem('beatorbit-volume') || .65); } catch { /* preferences are optional */ }
-volume = Number.isFinite(volume) ? Math.max(0,Math.min(1,volume)) : .65;
-transport.setVolume(volume);
 const selectedCharts = new Map<string,string>();
 let modalCleanup: (() => void) | undefined;
+
+// BeatOrbit is a widescreen experience. Portrait viewports get a blocking guard instead of a cramped layout.
+const guard = document.createElement('div');
+guard.id = 'widescreen-guard';
+guard.className = 'widescreen-guard'; guard.setAttribute('role', 'alertdialog'); guard.setAttribute('aria-live', 'assertive'); guard.setAttribute('aria-label', 'Widescreen required');
+guard.innerHTML = '<div class="guard-card"><div class="guard-device" aria-hidden="true"><span></span></div><span class="eyebrow">WIDESCREEN REQUIRED</span><h2>Turn your device sideways.</h2><p>BeatOrbit needs a landscape view to keep every target and control in reach. Your run is paused and nothing is lost.</p><button class="button primary" data-guard="rotate">Try landscape mode</button></div>';
+document.body.append(guard);
+guard.querySelector('[data-guard="rotate"]')!.addEventListener('click', () => {
+  // Orientation locking needs fullscreen on most mobile browsers; unsupported ones simply keep the guard.
+  void (async () => {
+    try { await document.documentElement.requestFullscreen?.(); await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'); } catch { /* user must rotate manually */ }
+  })();
+});
+function checkOrientation() {
+  const portrait = window.innerHeight > window.innerWidth;
+  document.body.classList.toggle('portrait-lock', portrait);
+  if (portrait) game?.suspend();
+}
+window.addEventListener('resize', checkOrientation); window.addEventListener('orientationchange', checkOrientation); checkOrientation();
+// Subtle interface sounds for every button; they obey the Interface volume and mute settings.
+document.addEventListener('click', e => { if ((e.target as HTMLElement).closest?.('button:not([data-play]):not(.game-key)')) transport.sfx.ui('click'); }, true);
 
 function closeModal() {
   modalCleanup?.(); modalCleanup=undefined; modalRoot.innerHTML=''; app.inert=false;
@@ -181,16 +198,45 @@ async function startGame(song: Song, chart: Chart, playtest=false) {
     game?.unmount();game=undefined;
     if(studio){renderStudio();}else{library();}
   },result=>{
+    const previousBest=results.filter(r=>r.chartId===result.chartId).reduce((best,r)=>Math.max(best,r.score),0);
     game?.unmount();game=undefined;latestResult=result;resultPlaytest=playtest;
     if(!playtest)void repo.addResult(result).then(refreshData).catch(e=>toast('Result could not be saved: '+storageMessage(e),true));
-    renderResults(result,playtest);
+    renderResults(result,playtest,!playtest&&result.score>0&&result.score>previousBest);
   });
   await game.mount(app.querySelector('#play-mount')!);
 }
-function renderResults(result: Result, playtest: boolean) {
+const gradeFor=(accuracy: number)=>accuracy>=98?'S':accuracy>=90?'A':accuracy>=75?'B':accuracy>=50?'C':'D';
+function countUp(el: HTMLElement|null, target: number, ms=900) {
+  if(!el)return;
+  if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches||target<=0){el.textContent=target.toLocaleString();return;}
+  const start=performance.now();
+  const step=(now: number)=>{
+    if(!el.isConnected)return;
+    const t=Math.min(1,(now-start)/ms),eased=1-Math.pow(1-t,3);
+    el.textContent=Math.round(target*eased).toLocaleString();
+    if(t<1)requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function renderResults(result: Result, playtest: boolean, record=false) {
   page='results';
-  const grade=result.accuracy>=98?'S':result.accuracy>=90?'A':result.accuracy>=75?'B':result.accuracy>=50?'C':'D';
-  shell('play',`<section class="results-view"><span class="eyebrow">${playtest?'STUDIO PLAYTEST':'ORBIT COMPLETE'}</span><h1>Your rhythm, realized.</h1><p>${esc(result.title)} <span>·</span> ${esc(lastChart?.difficulty||'normal')}</p><div class="result-grade grade-${grade.toLowerCase()}">${grade}</div><div class="result-score">${result.score.toLocaleString()}<span>FINAL SCORE</span></div><div class="results-metrics"><div><strong>${result.accuracy.toFixed(2)}<small>%</small></strong><span>ACCURACY</span></div><div><strong>${result.maxCombo}<small>×</small></strong><span>MAX COMBO</span></div></div><div class="judgement-totals">${(['perfect','great','good','miss'] as const).map(j=>`<div class="${j}"><span>${j.toUpperCase()}</span><b>${result[j]}</b></div>`).join('')}</div><p class="small-muted">${playtest?'Playtest results are not added to your session history.':'Saved with chart revision '+result.revision+' · BeatOrbit Standard v1'}</p><div class="result-actions"><button class="button ghost" data-action="result-return">${icon('back')} ${playtest?'Back to Studio':'Music Library'}</button><button class="button primary" data-action="retry">${icon('play')} Play again</button>${playtest?'':'<button class="button ghost" data-action="result-edit">'+icon('studio')+' Edit chart</button>'}</div></section>`);
+  const grade=gradeFor(result.accuracy),total=Math.max(1,result.perfect+result.great+result.good+result.miss);
+  const badges=[result.miss===0&&result.good===0&&result.perfect+result.great>0?(result.great+result.good+result.miss===0?'ALL PERFECT':'FULL COMBO'):'',record?'NEW RECORD':''].filter(Boolean);
+  shell('play',`<section class="results-view rb"><div class="rb-shell">
+    <div class="rb-head"><span class="eyebrow">${playtest?'STUDIO PLAYTEST':'ORBIT COMPLETE'}</span><h1>Your rhythm, realized.</h1><p class="rb-sub">${esc(result.title)} <span>·</span> ${esc(lastChart?.difficulty||'normal')}</p>${badges.length?`<div class="rb-badges">${badges.map((b,i)=>`<span class="rb-badge" style="--i:${i}">${b}</span>`).join('')}</div>`:''}</div>
+    <div class="rb-body">
+      <div class="rb-emblem grade-${grade.toLowerCase()}"><i class="rb-ring"></i><b>${grade}</b><small>GRADE</small></div>
+      <div class="rb-data">
+        <div class="rb-score"><b id="rb-score-value">0</b><small>FINAL SCORE</small></div>
+        <div class="rb-metrics"><div><strong>${result.accuracy.toFixed(2)}<small>%</small></strong><span>ACCURACY</span></div><div><strong>${result.maxCombo}<small>×</small></strong><span>MAX COMBO</span></div></div>
+        <div class="rb-judges">${(['perfect','great','good','miss'] as const).map((j,i)=>`<div class="rb-judge ${j}" style="--i:${i}"><span>${j.toUpperCase()}</span><div class="rb-bar"><i style="--w:${(result[j]/total*100).toFixed(1)}%"></i></div><b>${result[j]}</b></div>`).join('')}</div>
+      </div>
+    </div>
+    <p class="small-muted rb-foot">${playtest?'Playtest results are not added to your session history.':'Saved with chart revision '+result.revision+' · BeatOrbit Standard v1'}</p>
+    <div class="rb-actions"><button class="button ghost" data-action="result-return">${icon('back')} ${playtest?'Back to Studio':'Music Library'}</button><button class="button primary" data-action="retry">${icon('play')} Play again</button>${playtest?'':'<button class="button ghost" data-action="result-edit">'+icon('studio')+' Edit chart</button>'}</div>
+  </div></section>`);
+  countUp(app.querySelector<HTMLElement>('#rb-score-value'),result.score);
+  transport.sfx.fanfare(grade);
 }
 async function importAudio(file: File, relinkSong?: Song) {
   const operation=++importOperation;transport.unload();loadedSong=undefined;previewSong=undefined;
@@ -275,13 +321,50 @@ function manageSong(song: Song) {
   }));
 }
 function guide() {
-  modal('A little rhythm goes a long way.',`<div class="guide-symbols">${SYMBOLS.map(symbol=>'<span>'+symbolSVG(symbol)+'</span>').join('')}</div><ol class="guide-steps"><li><strong>Bring your own sound.</strong> Import an audio file, or start with our locally generated demo tracks.</li><li><strong>Make an orbit.</strong> In Studio, set BPM and grid offset, then place Tap, Hold, and Dual notes on the timeline. Save your chart.</li><li><strong>Find the rhythm.</strong> Notes travel from any edge to stationary targets. Tap the matching symbol when the note meets its target. Keep pressing Hold notes until their trail ends.</li><li><strong>Choose either side.</strong> Ordinary notes work on either control bank. Solid Dual symbols need two separate inputs. Matching symbols share one target; its counter shows partial progress. Use both banks for matching Duals. After resuming, press any interrupted Hold again until its end.</li></ol><p class="small-muted">Dual example: ${symbolSVG('triangle',true)} Solid = two inputs. Outline = single input.</p><div class="keyboard-guide"><b>LEFT</b><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><span> / </span><b>RIGHT</b><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd></div><p class="small-muted">Perfect ±45 ms · Great ±90 ms · Good ±135 ms. Each note scores 1000 / 700 / 300 / 0. A Hold resolves once; release over 135 ms early counts as a miss.</p><p class="small-muted">Studio: Space to preview · Ctrl/Cmd+Z to undo · Ctrl/Cmd+Shift+Z to redo · Delete to remove selection. Shortcuts are disabled while typing.</p>`,'<button class="button primary" data-cancel>Find my flow '+icon('arrow')+'</button>');
+  modal('A little rhythm goes a long way.',`<div class="guide-symbols">${SYMBOLS.map(symbol=>'<span>'+symbolSVG(symbol)+'</span>').join('')}</div><ol class="guide-steps"><li><strong>Bring your own sound.</strong> Import an audio file, or start with our locally generated demo tracks.</li><li><strong>Make an orbit.</strong> In Studio, set BPM and grid offset, then place Tap, Hold, and Dual notes on the timeline. Save your chart.</li><li><strong>Find the rhythm.</strong> Notes travel at a steady speed set by the song's BPM toward stationary targets, with a trail behind them. Tap the matching symbol when the note meets its target. Keep pressing Hold notes until the release marker arrives.</li><li><strong>Choose either side.</strong> Ordinary notes work on either control bank. A solid Dual symbol needs its Left and Right button together and counts as one hit. After resuming, press any interrupted Hold again until its end.</li></ol><p class="small-muted">Dual example: ${symbolSVG('triangle',true)} Solid = Left + Right. Outline = single input. A wrong symbol on a live target shows PERFECT? / GREAT? / GOOD? with no score and no combo.</p><div class="keyboard-guide"><b>LEFT</b><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><span> / </span><b>RIGHT</b><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd></div><p class="small-muted">Perfect ±45 ms · Great ±90 ms · Good ±135 ms. Each note scores 1000 / 700 / 300 / 0, and only Perfect and Great extend your combo. A Hold resolves once; release over 135 ms early counts as a miss.</p><p class="small-muted">Studio: Space to preview · Ctrl/Cmd+Z to undo · Ctrl/Cmd+Shift+Z to redo · Delete to remove selection. Shortcuts are disabled while typing.</p>`,'<button class="button primary" data-cancel>Find my flow '+icon('arrow')+'</button>');
+}
+const AUDIO_SLIDERS = [['master','Master volume','Overall loudness of everything'],['music','Music','Your track'],['sfx','Gameplay effects','Hits, holds, misses and countdown'],['ui','Interface','Buttons, menus and results']] as const;
+function audioPanel() {
+  const s=transport.settings;
+  return `<section class="audio-panel" aria-label="Sound settings"><div class="audio-title"><span class="eyebrow">SOUND</span><label class="switch"><input type="checkbox" data-audio="muted" ${s.muted?'checked':''}><span>Mute all</span></label></div>
+    ${AUDIO_SLIDERS.map(([key,label,hint])=>`<label class="audio-row"><span class="audio-name"><b>${label}</b><small>${hint}</small></span><input type="range" min="0" max="1" step=".01" value="${s[key]}" data-audio="${key}" aria-label="${label}"><output>${Math.round(s[key]*100)}%</output></label>`).join('')}
+    <div class="audio-row"><span class="audio-name"><b>Hit sound</b><small>Character of the note-hit effect</small></span><select data-audio="hitPreset" aria-label="Hit sound">${HIT_PRESETS.map(p=>`<option value="${p.id}" ${p.id===s.hitPreset?'selected':''}>${p.label}</option>`).join('')}</select><button class="button subtle" data-audio-test>Test</button></div>
+    <label class="audio-row switch-row"><span class="audio-name"><b>Hold sustain</b><small>Continuous tone while a Hold is pressed</small></span><input type="checkbox" data-audio="holdSustain" ${s.holdSustain?'checked':''}></label>
+    <label class="audio-row"><span class="audio-name"><b>Audio offset</b><small>Positive if you tend to hit late, negative if early</small></span><input type="range" min="-200" max="200" step="1" value="${s.offsetMs}" data-audio="offsetMs" aria-label="Audio offset in milliseconds"><output>${s.offsetMs>0?'+':''}${s.offsetMs} ms</output></label>
+    <div class="audio-foot"><button class="button subtle" data-audio-reset>Reset sound defaults</button></div></section>`;
+}
+function bindAudioPanel(root: HTMLElement) {
+  const refresh=()=>{
+    const s=transport.settings;
+    root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('[data-audio]').forEach(el=>{
+      const key=el.dataset.audio as keyof AudioSettings,value=s[key];
+      if(el instanceof HTMLInputElement&&el.type==='checkbox')el.checked=Boolean(value);else el.value=String(value);
+      const out=el.closest('label')?.querySelector('output');
+      if(out)out.textContent=key==='offsetMs'?`${s.offsetMs>0?'+':''}${s.offsetMs} ms`:`${Math.round(Number(value)*100)}%`;
+    });
+  };
+  root.addEventListener('input',e=>{
+    const el=e.target as HTMLInputElement|HTMLSelectElement,key=el.dataset.audio as keyof AudioSettings|undefined;if(!key)return;
+    const value=el instanceof HTMLInputElement&&el.type==='checkbox'?el.checked:key==='hitPreset'?el.value:Number(el.value);
+    transport.updateSettings({[key]:value} as Partial<AudioSettings>);
+    const out=el.closest('label')?.querySelector('output');
+    if(out)out.textContent=key==='offsetMs'?`${transport.settings.offsetMs>0?'+':''}${transport.settings.offsetMs} ms`:`${Math.round(Number(value)*100)}%`;
+  });
+  // Preview after the user lets go of a slider, not on every pixel of movement.
+  root.addEventListener('change',e=>{
+    const key=(e.target as HTMLElement).dataset.audio;
+    if(key==='sfx'||key==='hitPreset'||key==='master')transport.sfx.hit('perfect',0);
+    if(key==='ui')transport.sfx.ui('confirm');
+    if(key==='muted'||key==='holdSustain')transport.sfx.ui('tick');
+  });
+  root.querySelector('[data-audio-test]')?.addEventListener('click',()=>{const s=transport.sfx;s.hit('perfect',0);setTimeout(()=>s.hit('great',1),180);setTimeout(()=>s.hit('good',2),360);setTimeout(()=>s.hit('wrong',3),620);});
+  root.querySelector('[data-audio-reset]')?.addEventListener('click',()=>{transport.updateSettings({...DEFAULT_AUDIO_SETTINGS});refresh();});
 }
 async function settings() {
   let estimate: StorageEstimate={};try{estimate=await navigator.storage?.estimate?.()||{};}catch{/* optional */}
   const used=songs.reduce((sum,s)=>sum+s.fileSize,0);
-  const root=modal('Your local workspace',`<label>MASTER VOLUME<input id="volume-setting" type="range" min="0" max="1" step=".01" value="${volume}"></label><div class="settings-stat"><span>Audio in your library</span><b>${(used/1024/1024).toFixed(1)} MiB</b></div><div class="settings-stat"><span>Estimated browser usage</span><b>${estimate.usage?(estimate.usage/1024/1024).toFixed(1)+' MiB':'Unavailable'}</b></div><p class="small-muted">Import limits: 64 MiB per file, 10 minutes, and 128 MiB decoded PCM. Decoded audio can use much more memory than its file size.</p><p class="privacy-note">${icon('shield')} Music and charts are stored in this browser, on this device. Clearing site data removes them. Export chart JSON and keep the original audio files.</p><button class="button ghost" id="persist-storage">Request persistent storage</button><p id="persist-status" class="small-muted"></p>`,'<button class="button primary" data-cancel>Done</button>');
-  root.querySelector('#volume-setting')!.addEventListener('input',e=>{volume=Number((e.target as HTMLInputElement).value);transport.setVolume(volume);try{localStorage.setItem('beatorbit-volume',String(volume));}catch{/* optional */}});
+  const root=modal('Your local workspace',`${audioPanel()}<div class="settings-stat"><span>Audio in your library</span><b>${(used/1024/1024).toFixed(1)} MiB</b></div><div class="settings-stat"><span>Estimated browser usage</span><b>${estimate.usage?(estimate.usage/1024/1024).toFixed(1)+' MiB':'Unavailable'}</b></div><p class="small-muted">Import limits: 64 MiB per file, 10 minutes, and 128 MiB decoded PCM. Decoded audio can use much more memory than its file size.</p><p class="privacy-note">${icon('shield')} Music and charts are stored in this browser, on this device. Clearing site data removes them. Export chart JSON and keep the original audio files.</p><button class="button ghost" id="persist-storage">Request persistent storage</button><p id="persist-status" class="small-muted"></p>`,'<button class="button primary" data-cancel>Done</button>');
+  bindAudioPanel(root);
   root.querySelector('#persist-storage')!.addEventListener('click',async()=>{const status=root.querySelector('#persist-status')!;try{status.textContent=navigator.storage?.persist?(await navigator.storage.persist()?'Persistent storage granted. Manual clearing of site data still removes your library.':'The browser did not grant persistent storage. Keep backups of your charts.'):'Persistent storage is not available in this browser.';}catch{status.textContent='Persistent storage could not be requested.';}});
 }
 function activity() {

@@ -15,7 +15,8 @@ export const sortNotes = (notes: Note[]) => notes.sort((a, b) => a.timeMs - b.ti
 export const formatTime = (ms: number) => Math.floor(Math.max(0, ms) / 60000) + ':' + String(Math.floor(Math.max(0, ms) / 1000) % 60).padStart(2, '0');
 export const exactTime = (ms: number) => formatTime(ms) + '.' + String(Math.round(Math.max(0, ms) % 1000)).padStart(3, '0');
 // Angles point from the target toward the entry edge: 0 right, 90 bottom.
-export const STAGE_GRID = { min: 0.1, max: 0.9, majorStep: 0.1, minorStep: 0.05 } as const;
+// The outer bounds (0.1–0.9) are unchanged; the steps are halved so the stage offers 4x more snap positions.
+export const STAGE_GRID = { min: 0.1, max: 0.9, majorStep: 0.05, minorStep: 0.025 } as const;
 export function snapTargetCoord(value: number, step: number = STAGE_GRID.minorStep): number {
   const clamped = Math.max(STAGE_GRID.min, Math.min(STAGE_GRID.max, value));
   return Number((Math.round(clamped / step) * step).toFixed(4));
@@ -27,10 +28,10 @@ export function bpmTravelTimeMs(bpm: number): number {
   return Math.round(Math.max(200, Math.min(5000, 240000 / (Number.isFinite(bpm) && bpm > 0 ? bpm : 120))));
 }
 export function gridStepForSubdivision(subdivision: number): number {
-  if (subdivision >= 32) return STAGE_GRID.minorStep; // 1/32 -> 1/2 grid unit (0.05)
-  if (subdivision >= 16) return STAGE_GRID.majorStep; // 1/16 -> 1 grid unit (0.10)
-  if (subdivision >= 8) return STAGE_GRID.majorStep * 2; // 1/8 -> 2 grid units (0.20)
-  return STAGE_GRID.majorStep * 2;
+  if (subdivision >= 32) return STAGE_GRID.minorStep; // 1/32 -> 1/2 grid unit (0.025)
+  if (subdivision >= 16) return STAGE_GRID.majorStep; // 1/16 -> 1 grid unit (0.05)
+  if (subdivision >= 8) return STAGE_GRID.majorStep * 2; // 1/8 -> 2 grid units (0.10)
+  return STAGE_GRID.majorStep * 4;
 }
 export function defaultLayout(symbol: SymbolName, bpm = 120, stepIndex = 0, subdivision = 16): Pick<Note, 'target' | 'entryAngleDeg' | 'travelTimeMs'> {
   const index = SYMBOLS.indexOf(symbol);

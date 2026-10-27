@@ -1,4 +1,37 @@
 import { LIMITS } from './domain';
+import { SoundBank } from './sfx';
+
+export type HitPreset = 'crystal' | 'tactile' | 'synth' | 'classic';
+export const HIT_PRESETS: { id: HitPreset; label: string }[] = [
+  { id: 'crystal', label: 'Crystal chime' }, { id: 'tactile', label: 'Tactile click' }, { id: 'synth', label: 'Soft synth' }, { id: 'classic', label: 'Classic wood' }
+];
+export type AudioSettings = { master: number; music: number; sfx: number; ui: number; muted: boolean; hitPreset: HitPreset; holdSustain: boolean; offsetMs: number };
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = { master: .65, music: 1, sfx: .8, ui: .6, muted: false, hitPreset: 'crystal', holdSustain: true, offsetMs: 0 };
+const SETTINGS_KEY = 'beatorbit-audio-settings', LEGACY_VOLUME_KEY = 'beatorbit-volume';
+const unit = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+export function sanitizeAudioSettings(value: Partial<AudioSettings> | undefined, base: AudioSettings = DEFAULT_AUDIO_SETTINGS): AudioSettings {
+  const v = value || {};
+  return {
+    master: unit(v.master, base.master), music: unit(v.music, base.music), sfx: unit(v.sfx, base.sfx), ui: unit(v.ui, base.ui),
+    muted: typeof v.muted === 'boolean' ? v.muted : base.muted,
+    hitPreset: HIT_PRESETS.some(p => p.id === v.hitPreset) ? v.hitPreset as HitPreset : base.hitPreset,
+    holdSustain: typeof v.holdSustain === 'boolean' ? v.holdSustain : base.holdSustain,
+    offsetMs: typeof v.offsetMs === 'number' && Number.isFinite(v.offsetMs) ? Math.round(Math.max(-200, Math.min(200, v.offsetMs))) : base.offsetMs
+  };
+}
+export function loadAudioSettings(): AudioSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return sanitizeAudioSettings(JSON.parse(raw));
+    // Older builds stored a single master volume.
+    const legacy = localStorage.getItem(LEGACY_VOLUME_KEY);
+    if (legacy !== null) return sanitizeAudioSettings({ master: Number(legacy) });
+  } catch { /* preferences are optional */ }
+  return { ...DEFAULT_AUDIO_SETTINGS };
+}
+export function saveAudioSettings(settings: AudioSettings) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* preferences are optional */ }
+}
 
 export class AudioTransport {
   private context?: AudioContext;
@@ -8,8 +41,9 @@ export class AudioTransport {
   private position = 0;
   private playing = false;
   private session = 0;
-  private volume = 0.75;
-  private gain?: GainNode;
+  settings: AudioSettings = loadAudioSettings();
+  private buses?: { master: GainNode; music: GainNode; sfx: GainNode; ui: GainNode };
+  private soundBank?: SoundBank;
   private decodeSequence = 0;
   private decodePending: Promise<unknown> = Promise.resolve();
   onEnded?: () => void;
@@ -17,12 +51,30 @@ export class AudioTransport {
   get ctx() {
     if (!this.context) {
       this.context = new AudioContext();
-      this.gain = this.context.createGain(); this.gain.gain.value = this.volume; this.gain.connect(this.context.destination);
+      const master = this.context.createGain(), music = this.context.createGain(), sfx = this.context.createGain(), ui = this.context.createGain();
+      music.connect(master); sfx.connect(master); ui.connect(master); master.connect(this.context.destination);
+      this.buses = { master, music, sfx, ui };
+      this.applyGains(true);
       this.context.onstatechange = () => {
         if (this.context?.state !== 'running' && this.playing) { this.pause(); this.onInterrupted?.(); }
       };
     }
     return this.context;
+  }
+  /** Gameplay sound effects, synthesised locally through the shared audio context. */
+  get sfx() { return this.soundBank ??= new SoundBank(this); }
+  bus(name: 'sfx' | 'ui') { this.ctx; return this.buses![name]; }
+  private applyGains(immediate = false) {
+    if (!this.buses || !this.context) return;
+    const s = this.settings, now = this.context.currentTime;
+    for (const [node, value] of [[this.buses.master, s.muted ? 0 : s.master], [this.buses.music, s.music], [this.buses.sfx, s.sfx], [this.buses.ui, s.ui]] as const) {
+      if (immediate) node.gain.value = value; else node.gain.setTargetAtTime(value, now, 0.02);
+    }
+  }
+  updateSettings(patch: Partial<AudioSettings>) {
+    this.settings = sanitizeAudioSettings({ ...this.settings, ...patch }, this.settings);
+    saveAudioSettings(this.settings); this.applyGains();
+    return this.settings;
   }
   async unlock() { const ctx = this.ctx; if (ctx.state !== 'running') await ctx.resume(); }
   get currentBuffer() { return this.buffer; }
@@ -88,7 +140,7 @@ export class AudioTransport {
     this.detach();
     this.position = Math.max(0, Math.min(position, this.durationMs));
     if (this.position >= this.durationMs) this.position = 0;
-    const node = this.ctx.createBufferSource(); node.buffer = this.buffer; node.connect(this.gain!);
+    const node = this.ctx.createBufferSource(); node.buffer = this.buffer; node.connect(this.buses!.music);
     this.source = node; this.anchor = this.ctx.currentTime; this.playing = true;
     node.onended = () => {
       if (request !== this.session || this.source !== node) return;
@@ -103,9 +155,10 @@ export class AudioTransport {
     if (play && this.position < this.durationMs) return this.play();
     return Promise.resolve();
   }
-  setVolume(value: number) { if (!Number.isFinite(value)) return; this.volume = Math.max(0, Math.min(1, value)); if (this.gain && this.context) this.gain.gain.setTargetAtTime(this.volume, this.context.currentTime, 0.02); }
+  /** Kept for callers that only know a master volume. */
+  setVolume(value: number) { if (!Number.isFinite(value)) return; this.updateSettings({ master: value }); }
   private detach() { if (this.source) { this.source.onended = null; try { this.source.stop(); } catch { /* already stopped */ } this.source.disconnect(); this.source = undefined; } }
-  dispose() { ++this.decodeSequence; this.stop(); this.buffer = undefined; void this.context?.close(); }
+  dispose() { ++this.decodeSequence; this.stop(); this.buffer = undefined; this.soundBank?.stopAllHolds(); void this.context?.close(); }
 }
 
 export function waveform(buffer: AudioBuffer, buckets = 1800) {
