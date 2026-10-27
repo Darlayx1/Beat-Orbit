@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { EditorDocument, clone, parseChart, snapTime, sortNotes, validatePlayable } from '../src/domain';
+import { DIFFICULTIES, EditorDocument, clone, parseChart, snapTime, sortNotes, validatePlayable, type Song } from '../src/domain';
+import { DEMO_SPECS, buildDemoChart } from '../src/demos';
+import { makeDemoAudio } from '../src/audio';
+import { Gameplay } from '../src/gameplay';
 import { chart, song, tap } from './fixtures';
 
 describe('portable chart schema', () => {
@@ -89,5 +92,67 @@ describe('editor command history', () => {
     const doc=new EditorDocument(chart()),before=clone(doc.chart);
     expect(()=>doc.apply(c=>{c.timing.bpm=0;})).toThrow();
     expect(doc.chart).toEqual(before);expect(doc.canUndo).toBe(false);
+  });
+});
+describe('10 progressive demo tracks and systematic charts', () => {
+  it('defines 10 tracks ordered from easiest to most challenging with valid playable charts', () => {
+    expect(DEMO_SPECS).toHaveLength(10);
+    const charts = DEMO_SPECS.map((spec, i) => {
+      expect(spec.level).toBe(i + 1);
+      expect(spec.seconds).toBeGreaterThanOrEqual(90);
+      if (i > 0) {
+        expect(spec.bpm).toBeGreaterThan(DEMO_SPECS[i - 1].bpm);
+        expect(DIFFICULTIES.indexOf(spec.difficulty)).toBeGreaterThanOrEqual(DIFFICULTIES.indexOf(DEMO_SPECS[i - 1].difficulty));
+      }
+      const demoSong: Song = {
+        id: spec.id,
+        title: spec.title,
+        artist: spec.artist,
+        bpm: spec.bpm,
+        durationMs: spec.seconds * 1000,
+        fileName: spec.title + '.wav',
+        format: 'wav',
+        fileSize: spec.seconds * 32000 + 44,
+        importedAt: new Date().toISOString(),
+        source: 'demo',
+        palette: spec.palette
+      };
+      const built = buildDemoChart(spec, demoSong);
+      const parsed = parseChart(built);
+      const validation = validatePlayable(parsed, demoSong.durationMs);
+      expect(validation.errors, `Errors in ${spec.title}`).toEqual([]);
+      expect(validation.warnings, `Warnings in ${spec.title}`).toEqual([]);
+      expect(parsed.notes.some(n => n.type === 'tap')).toBe(true);
+      expect(parsed.notes.some(n => n.type === 'hold')).toBe(true);
+      expect(parsed.notes.some(n => n.side === 'left') && parsed.notes.some(n => n.side === 'right')).toBe(true);
+      const game = new Gameplay(parsed);
+      expect(game.maxPossibleCombo).toBeGreaterThan(40);
+      return { chart: parsed, combo: game.maxPossibleCombo };
+    });
+    for (let i = 1; i < charts.length; i++) {
+      expect(
+        charts[i].combo,
+        `Expected track ${i + 1} (${DEMO_SPECS[i].title}: ${charts[i].combo}) to have more combo than track ${i} (${DEMO_SPECS[i - 1].title}: ${charts[i - 1].combo})`
+      ).toBeGreaterThan(charts[i - 1].combo);
+    }
+    expect(charts[9].chart.notes.length).toBeGreaterThan(charts[0].chart.notes.length * 2.5);
+  });
+  it('synthesizes dynamic multi-section audio rather than repeating a static bar loop', async () => {
+    const spec = DEMO_SPECS[0];
+    const blob = makeDemoAudio(spec.bpm, 40, spec.root, spec);
+    const view = new DataView(await blob.arrayBuffer());
+    const rmsAtSecond = (sec: number) => {
+      const startSample = Math.floor(sec * 16000);
+      let sumSq = 0;
+      for (let i = 0; i < 8000; i++) {
+        const s = view.getInt16(44 + (startSample + i) * 2, true) / 32768;
+        sumSq += s * s;
+      }
+      return Math.sqrt(sumSq / 8000);
+    };
+    const introRms = rmsAtSecond(2);
+    const activeRms = rmsAtSecond(30);
+    expect(introRms).toBeGreaterThan(0.01);
+    expect(activeRms).toBeGreaterThan(introRms * 1.15);
   });
 });

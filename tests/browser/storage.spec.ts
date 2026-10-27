@@ -6,7 +6,7 @@ test('demo audio persists in a fresh context without IndexedDB Blob support', as
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('./');
-  await expect(page.locator('.track-row')).toHaveCount(3, { timeout: 14500 });
+  await expect(page.locator('.track-row')).toHaveCount(10, { timeout: 14500 });
   const readAudio = () => page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('beatorbit-local-v1', 1);
@@ -27,14 +27,14 @@ test('demo audio persists in a fresh context without IndexedDB Blob support', as
     } finally { db.close(); }
   });
   const audio = await readAudio();
-  expect(audio).toHaveLength(3);
+  expect(audio).toHaveLength(10);
   for (const track of audio) {
     expect(track.size).toBeGreaterThan(1000000);
     expect(track.type).toBe('audio/wav');
     expect(track.header).toBe('RIFF');
   }
   await page.reload();
-  await expect(page.locator('.track-row')).toHaveCount(3);
+  await expect(page.locator('.track-row')).toHaveCount(10);
   expect(await readAudio()).toEqual(audio);
   expect(errors).toEqual([]);
 });

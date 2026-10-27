@@ -5,8 +5,9 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/barlow-condensed/latin-700.css';
 import '@fontsource/barlow-condensed/latin-800.css';
 import './style.css';
-import { DIFFICULTIES, GLYPHS, LIMITS, SYMBOLS, clone, defaultLayout, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
+import { GLYPHS, LIMITS, SYMBOLS, clone, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
 import { AudioTransport, DEFAULT_AUDIO_SETTINGS, HIT_PRESETS, makeDemoAudioAsync, type AudioSettings } from './audio';
+import { DEMO_SPECS, buildDemoChart } from './demos';
 import { Repository, storageMessage } from './storage';
 import { symbolSVG } from './stage';
 import { BootSession } from './boot';
@@ -105,7 +106,7 @@ function cover(song: Song, large=false) {
 }
 function library() {
   page='library'; transport.onEnded=undefined;
-  const featured=songs.find(s=>s.id==='demo-lunar')||songs[0],playable=charts.filter(c=>!validatePlayable(c,songs.find(s=>s.id===c.songId)?.durationMs||0).errors.length).length;
+  const featured=songs.find(s=>s.id==='demo-afterglow')||songs.find(s=>s.id==='demo-lunar')||songs[0],playable=charts.filter(c=>!validatePlayable(c,songs.find(s=>s.id===c.songId)?.durationMs||0).errors.length).length;
   shell('library',`<section class="page-title"><div><span class="eyebrow">A SPACE FOR YOUR SOUND</span><h1>Music Library<span class="title-dot">.</span></h1><p>Your tracks. Your charts. Your next high score.</p></div><button class="button primary" data-action="import-audio">${icon('plus')} Import Music</button></section>
     <section class="hero"><div class="hero-grain"></div><div class="hero-copy"><span class="hero-kicker"><span class="live-dot"></span> MAKE THE MUSIC YOURS</span><h2>FIND YOUR<br>OWN <em>ORBIT.</em></h2><p>Every track has a rhythm.<br>Turn yours into something you can play.</p><div class="hero-buttons"><button class="button primary" data-action="hero-play" ${featured?'':'disabled'}>${icon('play')} Play a demo</button><button class="button hero-secondary" data-action="studio-picker">Explore Orbit Studio ${icon('arrow')}</button></div><span class="hero-note">No account. No uploads. Just press play.</span></div><div class="hero-art" aria-hidden="true"><div class="orbit-glow"></div><div class="hero-ring ring-1"></div><div class="hero-ring ring-2"></div><div class="hero-ring ring-3"></div><div class="hero-ring ring-4"></div><div class="orbit-core"><span>BO</span><small>BEAT / ORBIT</small></div><div class="orbit-node node-triangle">△</div><div class="orbit-node node-circle">○</div><div class="orbit-node node-square">□</div><div class="orbit-node node-cross">×</div><span class="orbit-coordinate coordinate-top">AUDIO SYNC · ACTIVE</span><span class="orbit-coordinate coordinate-bottom">34° 08′ &nbsp; / &nbsp; FIND YOUR FREQUENCY</span><span class="orbit-caption">RHYTHM IS A<br>STATE OF MIND.</span></div><div class="hero-index">01 / YOUR NEXT ORBIT</div></section>
     <section class="library-metrics"><div>${icon('music')}<span><strong>${songs.length.toString().padStart(2,'0')}</strong> tracks in your space</span></div><div>${icon('studio')}<span><strong>${playable.toString().padStart(2,'0')}</strong> playable charts</span></div><div>${icon('trophy')}<span><strong>${results.length.toString().padStart(2,'0')}</strong> completed sessions</span></div><span class="metrics-note">A little rhythm goes a long way.</span></section>
@@ -400,7 +401,7 @@ app.addEventListener('click',e=>{
       if(page!=='library'){await refreshData();library();}
       app.querySelector<HTMLInputElement>('#chart-file')!.click();
     }
-    if(action==='hero-play'){const demo=songs.find(s=>s.source==='demo'&&chosen(s));if(demo)await startGame(demo,chosen(demo)!);}
+    if(action==='hero-play'){const demo=songs.find(s=>s.id==='demo-afterglow'&&chosen(s))||songs.find(s=>s.source==='demo'&&chosen(s));if(demo)await startGame(demo,chosen(demo)!);}
     if(action==='preview'&&song)await preview(song);
     if(action==='toggle-preview'){if(transport.isPlaying)transport.pause();else await transport.play();}
     if(action==='close-preview'){transport.stop();previewSong=undefined;app.querySelector('#preview-player')!.classList.add('hidden');}
@@ -431,24 +432,14 @@ async function init() {
   app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Opening your local workspace…</p></div>';
   try{
     await stage('Opening local storage', () => repo.open());
-    if(!(await stage('Reading demo settings', () => repo.setting('demo-seeded')))){
+    if((await stage('Reading demo settings', () => repo.setting('demo-seeded')))!==2){
       app.querySelector('#boot-status')!.textContent='Creating your original demo tracks…';
       await new Promise(resolve=>setTimeout(resolve,30));
-      const configs=[{id:'demo-lunar',title:'Lunar Drift',artist:'BeatOrbit Originals',bpm:112,seconds:64,root:220},{id:'demo-midnight',title:'Midnight Circuit',artist:'BeatOrbit Originals',bpm:128,seconds:72,root:246.94},{id:'demo-afterglow',title:'Afterglow',artist:'BeatOrbit Originals',bpm:96,seconds:58,root:196}];
       const demoSongs:Song[]=[],audio:Blob[]=[],demoCharts:Chart[]=[];
-      for(let i=0;i<configs.length;i++){
-        const config=configs[i],blob=await stage('Generating demo '+(i+1)+'/3', () => makeDemoAudioAsync(config.bpm,config.seconds,config.root,session.signal));
-        const song:Song={id:config.id,title:config.title,artist:config.artist,bpm:config.bpm,durationMs:config.seconds*1000,fileName:config.title+'.wav',format:'wav',fileSize:blob.size,importedAt:'2026-01-01T00:00:0'+(3-i)+'.000Z',source:'demo',palette:i};
-        const chart=newChart(song,i===1?'hard':i===2?'easy':'normal');chart.name=['Lunar flow','Circuit run','Golden hour'][i];chart.chartId='chart-'+config.id;chart.revision=1;
-        const beat=60000/config.bpm;
-        for(let n=0,time=beat*8;time<song.durationMs-4000;n++,time+=beat*(i===2?2:1)){
-          const layout={...defaultLayout(SYMBOLS[n%4],config.bpm,n,16),entryAngleDeg:n%8*45};
-          if(n%12===8){
-            const chord=uid(),dualHold=n%24===20,holdProps=dualHold?{type:'hold' as const,durationMs:beat}:{type:'tap' as const};
-            chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],...holdProps,side:'left',timeMs:time,chordId:chord},{...layout,id:uid(),symbol:SYMBOLS[n%4],...holdProps,side:'right',timeMs:time,chordId:chord});
-          }
-          else chart.notes.push({...layout,id:uid(),symbol:SYMBOLS[n%4],type:n%10===5?'hold':'tap',side:'either',timeMs:time,...(n%10===5?{durationMs:beat}:{})});
-        }
+      for(let i=0;i<DEMO_SPECS.length;i++){
+        const spec=DEMO_SPECS[i],blob=await stage(`Generating demo ${i+1}/${DEMO_SPECS.length}`, () => makeDemoAudioAsync(spec.bpm,spec.seconds,spec.root,session.signal,spec));
+        const song:Song={id:spec.id,title:spec.title,artist:spec.artist,bpm:spec.bpm,durationMs:spec.seconds*1000,fileName:spec.title+'.wav',format:'wav',fileSize:blob.size,importedAt:'2026-01-01T00:00:'+String(DEMO_SPECS.length-i).padStart(2,'0')+'.000Z',source:'demo',palette:spec.palette};
+        const chart=buildDemoChart(spec,song);
         demoSongs.push(song);audio.push(blob);demoCharts.push(chart);
         await new Promise(resolve=>setTimeout(resolve,0));
       }

@@ -1,4 +1,5 @@
 import { LIMITS } from './domain';
+import { generateDemoTrackAudio, type DemoSpec } from './demos';
 import { SoundBank } from './sfx';
 
 export type HitPreset = 'crystal' | 'tactile' | 'synth' | 'classic';
@@ -175,39 +176,17 @@ export function waveform(buffer: AudioBuffer, buckets = 1800) {
 }
 
 // Original procedural demo music, generated locally as PCM WAV. No network audio.
-export function makeDemoAudio(bpm: number, seconds: number, root = 220): Blob {
-  const work = demoAudio(bpm, seconds, root); let next = work.next();
+export function makeDemoAudio(bpm: number, seconds: number, root = 220, spec?: DemoSpec): Blob {
+  const work = generateDemoTrackAudio(bpm, seconds, root, spec); let next = work.next();
   while (!next.done) next = work.next();
   return next.value;
 }
-export async function makeDemoAudioAsync(bpm: number, seconds: number, root = 220, signal?: AbortSignal): Promise<Blob> {
-  const work = demoAudio(bpm, seconds, root);
+export async function makeDemoAudioAsync(bpm: number, seconds: number, root = 220, signal?: AbortSignal, spec?: DemoSpec): Promise<Blob> {
+  const work = generateDemoTrackAudio(bpm, seconds, root, spec);
   for (;;) {
     signal?.throwIfAborted();
     const next = work.next();
     if (next.done) return next.value;
     await new Promise(resolve => setTimeout(resolve, 0));
   }
-}
-function* demoAudio(bpm: number, seconds: number, root: number): Generator<void, Blob> {
-  const rate = 16000, count = Math.floor(seconds * rate), raw = new ArrayBuffer(44 + count * 2), view = new DataView(raw);
-  const write = (at: number, s: string) => [...s].forEach((v, i) => view.setUint8(at + i, v.charCodeAt(0)));
-  write(0, 'RIFF'); view.setUint32(4, 36 + count * 2, true); write(8, 'WAVE'); write(12, 'fmt ');
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, rate, true);
-  view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); write(36, 'data'); view.setUint32(40, count * 2, true);
-  const beat = 60 / bpm, progression = [1, 0.7937, 0.8909, 0.6674], melody = [1, 1.5, 2, 1.25, 1.5, 1.125, 2, 1.5];
-  let noise = 18273;
-  for (let i = 0; i < count; i++) {
-    if (i > 0 && i % 16384 === 0) yield;
-    const t = i / rate, b = t / beat, phase = t % beat, sub = t % (beat / 2), chord = progression[Math.floor(b / 8) % 4];
-    const kick = Math.sin(2 * Math.PI * (48 * phase + 4 * (1 - Math.exp(-phase * 24)))) * Math.exp(-phase * 14) * 0.45;
-    noise = (noise * 16807) % 2147483647;
-    const hat = (noise / 2147483647 * 2 - 1) * Math.exp(-sub * 100) * 0.055;
-    const bass = Math.sin(2 * Math.PI * root / 4 * chord * t) * (0.65 + 0.35 * Math.exp(-phase * 6)) * 0.16;
-    const arp = Math.sin(2 * Math.PI * root * chord * melody[Math.floor(b * 2) % 8] * t) * Math.exp(-sub * 8) * 0.12;
-    const pad = (Math.sin(2 * Math.PI * root * chord * t) + Math.sin(2 * Math.PI * root * chord * 1.5 * t)) * 0.035;
-    const fade = Math.min(1, t * 2, (seconds - t) / 1.5);
-    view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, (kick + hat + bass + arp + pad) * fade * 28000)), true);
-  }
-  return new Blob([raw], { type: 'audio/wav' });
 }

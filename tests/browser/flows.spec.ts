@@ -109,7 +109,7 @@ test('vertical control banks, free stage, pause/resume and orientation',async({p
   await expect(page.locator('#widescreen-guard')).toBeHidden();
   await expect(page.locator('#game-overlay')).toBeVisible();
   await page.locator('#game-overlay [data-play="exit"]').click();
-  await expect(page.locator('.track-row')).toHaveCount(3);
+  await expect(page.locator('.track-row')).toHaveCount(10);
   await expect(page.locator('.app-header')).toBeVisible();
   await expect(page.locator('#play-mount')).toHaveCount(0);
 });
@@ -134,9 +134,9 @@ for(const mode of ['unavailable','blocked','stalled'] as const){
 
 test('first visit seeds all demos within the boot budget and survives refresh',async({page})=>{
   const start=Date.now();await page.goto('./');
-  await expect(page.locator('.track-row')).toHaveCount(3,{timeout:14500});
+  await expect(page.locator('.track-row')).toHaveCount(10,{timeout:14500});
   expect(Date.now()-start).toBeLessThan(15000);
-  await page.reload();await expect(page.locator('.track-row')).toHaveCount(3);
+  await page.reload();await expect(page.locator('.track-row')).toHaveCount(10);
   await expect(page.locator('.spinner')).toHaveCount(0);
 });
 
@@ -144,7 +144,7 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
   test.setTimeout(45000);
   await page.goto('./');
   await requireWebAudio(page);
-  await expect(page.locator('.track-row')).toHaveCount(3);
+  await expect(page.locator('.track-row')).toHaveCount(10);
   await page.screenshot({path:testInfo.outputPath('library.png'),fullPage:true});
   await test.step('Import local audio and open Orbit Studio',async()=>{
     await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
@@ -220,5 +220,5 @@ test('exports and imports portable chart JSON against an explicitly selected aud
   await page.locator('#chart-file').setInputFiles({name:'roundtrip.json',mimeType:'application/json',buffer:data});
   await expect(page.locator('#chart-audio')).toBeVisible();
   await page.locator('#confirm-chart').click();
-  await expect(page.locator('.library-metrics')).toContainText('04');
+  await expect(page.locator('.library-metrics')).toContainText('11');
 });

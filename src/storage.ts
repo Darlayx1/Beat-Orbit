@@ -103,7 +103,7 @@ export class Repository {
     return this.run<void>(['songs', 'audio', 'charts', 'settings'], 'readwrite', tx => {
       const req = tx.objectStore('settings').get('demo-seeded');
       req.onsuccess = () => {
-        if (req.result) return;
+        if (req.result === 2) return;
         songs.forEach((s, i) => {
           const existing = tx.objectStore('songs').get(s.id);
           existing.onsuccess = () => { if (!existing.result) { tx.objectStore('songs').add(s); tx.objectStore('audio').add(prepared[i], s.id); } };
@@ -112,7 +112,7 @@ export class Repository {
           const existing = tx.objectStore('charts').get(c.chartId);
           existing.onsuccess = () => { if (!existing.result) tx.objectStore('charts').add(parseChart(c)); };
         });
-        tx.objectStore('settings').put(true, 'demo-seeded');
+        tx.objectStore('settings').put(2, 'demo-seeded');
       };
     });
   }
