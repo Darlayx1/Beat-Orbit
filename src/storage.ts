@@ -101,19 +101,43 @@ export class Repository {
   async seed(songs: Song[], audio: Blob[], charts: Chart[]) {
     const prepared = await Promise.all(audio.map(blob => this.prepareAudio(blob)));
     return this.run<void>(['songs', 'audio', 'charts', 'settings'], 'readwrite', tx => {
-      const req = tx.objectStore('settings').get('demo-seeded');
-      req.onsuccess = () => {
-        if (req.result === 2) return;
+      const songStore = tx.objectStore('songs');
+      const audioStore = tx.objectStore('audio');
+      const chartStore = tx.objectStore('charts');
+      const settingsStore = tx.objectStore('settings');
+
+      const songKeysReq = songStore.getAllKeys();
+      const chartKeysReq = chartStore.getAllKeys();
+      const settingsReq = settingsStore.get('demo-seeded');
+
+      let songKeys: IDBValidKey[] | undefined;
+      let chartKeys: IDBValidKey[] | undefined;
+      let written = false;
+
+      const tryWrite = () => {
+        if (written || !songKeys || !chartKeys || settingsReq.readyState !== 'done') return;
+        written = true;
+        if (settingsReq.result === 2) return;
+        const songKeySet = new Set(songKeys.map(String));
+        const chartKeySet = new Set(chartKeys.map(String));
+
         songs.forEach((s, i) => {
-          const existing = tx.objectStore('songs').get(s.id);
-          existing.onsuccess = () => { if (!existing.result) { tx.objectStore('songs').add(s); tx.objectStore('audio').add(prepared[i], s.id); } };
+          if (!songKeySet.has(s.id)) {
+            songStore.add(s);
+            audioStore.add(prepared[i], s.id);
+          }
         });
         charts.forEach(c => {
-          const existing = tx.objectStore('charts').get(c.chartId);
-          existing.onsuccess = () => { if (!existing.result) tx.objectStore('charts').add(parseChart(c)); };
+          if (!chartKeySet.has(c.chartId)) {
+            chartStore.add(parseChart(c));
+          }
         });
-        tx.objectStore('settings').put(2, 'demo-seeded');
+        settingsStore.put(2, 'demo-seeded');
       };
+
+      settingsReq.onsuccess = tryWrite;
+      songKeysReq.onsuccess = () => { songKeys = songKeysReq.result; tryWrite(); };
+      chartKeysReq.onsuccess = () => { chartKeys = chartKeysReq.result; tryWrite(); };
     });
   }
   async addSong(song: Song, blob: Blob) {
