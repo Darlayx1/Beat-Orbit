@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EditorDocument, clone, defaultLayout, parseChart } from '../src/domain';
-import { entryPoint, groupNotes, notePoint, pointToTarget, stageRect, targetPoint, travelSpan } from '../src/stage';
+import { drawStage, entryPoint, groupNotes, notePoint, pointToTarget, stageRect, targetPoint, travelSpan } from '../src/stage';
 import { Gameplay } from '../src/gameplay';
 import { chart, tap } from './fixtures';
 
@@ -38,9 +38,10 @@ describe('free target schema and migration', () => {
 });
 describe('audio-time geometry',()=>{
   const sizes=[[300,500],[900,230],[1440,1000]] as const;
-  it.each([0,45,90,135,180,225,270,315])('arrives on time from %s degrees and moves at a BPM-derived constant speed',angle=>{
+  it.each([0,45,90,135,180,225,270,315])('arrives on time from %s degrees, swings laterally in flight, and keeps straight-line axis speed constant',angle=>{
     const n=tap(3000,{target:{x:.28,y:.72},entryAngleDeg:angle,travelTimeMs:1800});
     const far=tap(3000,{target:{x:.8,y:.2},entryAngleDeg:angle,travelTimeMs:1800});
+    const rad=angle*Math.PI/180, dx=Math.cos(rad), dy=Math.sin(rad), nx=-dy, ny=dx;
     for(const [w,h] of sizes){
       const entry=entryPoint(n,w,h), target=targetPoint(n,w,h);
       expect(notePoint(n,1200,w,h)).toEqual(entry);
@@ -48,15 +49,23 @@ describe('audio-time geometry',()=>{
       // A skipped frame cannot accumulate positional drift.
       notePoint(n,1700,w,h);notePoint(n,2900,w,h);
       expect(notePoint(n,3000,w,h)).toEqual(point);
+      // At mid-flight (remaining = 0.5), the note swings perpendicular to the entry-to-target line while staying at 50% along the straight chord.
+      const mid=notePoint(n,2100,w,h);
+      const along=(mid.x-target.x)*dx+(mid.y-target.y)*dy;
+      const lateral=Math.abs((mid.x-target.x)*nx+(mid.y-target.y)*ny);
+      expect(along).toBeCloseTo(travelSpan(w,h)*.5,8);
+      expect(lateral).toBeCloseTo(travelSpan(w,h)*.15,8);
       // Speed no longer depends on how far the target sits from an edge.
       const speed=(note:typeof n)=>{const a=notePoint(note,2000,w,h),b=notePoint(note,2100,w,h);return Math.hypot(a.x-b.x,a.y-b.y)/100;};
       expect(speed(n)).toBeCloseTo(speed(far),8);
-      expect(speed(n)).toBeCloseTo(travelSpan(w,h)/1800,8);
+      const axialSpeed=(note:typeof n)=>{const a=notePoint(note,2000,w,h),b=notePoint(note,2100,w,h);return Math.abs((a.x-b.x)*dx+(a.y-b.y)*dy)/100;};
+      expect(axialSpeed(n)).toBeCloseTo(travelSpan(w,h)/1800,8);
     }
   });
   it('slows every note when the song BPM is lower',()=>{
     const slow=tap(3000,{travelTimeMs:2400}),fast=tap(3000,{travelTimeMs:1200});
-    const step=(n:typeof slow)=>{const a=notePoint(n,2500,800,450),b=notePoint(n,2600,800,450);return Math.hypot(a.x-b.x,a.y-b.y);};
+    const rad=slow.entryAngleDeg*Math.PI/180, dx=Math.cos(rad), dy=Math.sin(rad);
+    const step=(n:typeof slow)=>{const a=notePoint(n,2500,800,450),b=notePoint(n,2600,800,450);return Math.abs((a.x-b.x)*dx+(a.y-b.y)*dy);};
     expect(step(fast)).toBeCloseTo(step(slow)*2,8);
   });
   it('maps Studio and gameplay through the same 16:9 stage, in both directions',()=>{
@@ -104,5 +113,30 @@ describe('pause/resume Holds',()=>{
     const game=new Gameplay(chart([tap(1000,{type:'hold',durationMs:1000})]));
     game.press('old','triangle','left',1000);game.suspendInputs();game.update(2200);
     expect(game.counts.miss).toBe(1);expect(game.complete).toBe(true);
+  });
+  it('renders shape targets, clock needles, and Hold pipes across all four symbols without HOLD text labels',()=>{
+    const fillText=vi.fn(), fill=vi.fn(), stroke=vi.fn();
+    const gradient={addColorStop:vi.fn()};
+    const ctx={
+      clearRect:vi.fn(), fillRect:vi.fn(), strokeRect:vi.fn(), setLineDash:vi.fn(),
+      beginPath:vi.fn(), closePath:vi.fn(), moveTo:vi.fn(), lineTo:vi.fn(), arc:vi.fn(), ellipse:vi.fn(),
+      fill, stroke, fillText, save:vi.fn(), restore:vi.fn(),
+      createLinearGradient:vi.fn(()=>gradient), createRadialGradient:vi.fn(()=>gradient),
+      lineWidth:1, strokeStyle:'', fillStyle:'', lineCap:'butt', lineJoin:'miter', globalAlpha:1, font:'', textAlign:'center', textBaseline:'alphabetic'
+    } as unknown as CanvasRenderingContext2D;
+    const notes=[
+      tap(1000,{symbol:'triangle',type:'hold',durationMs:600}),
+      tap(1100,{symbol:'circle',chordId:'d1',side:'left'}),
+      tap(1100,{symbol:'circle',chordId:'d1',side:'right'}),
+      tap(1200,{symbol:'square',type:'hold',durationMs:500,chordId:'d2',side:'left'}),
+      tap(1200,{symbol:'square',type:'hold',durationMs:500,chordId:'d2',side:'right'}),
+      tap(1300,{symbol:'cross'})
+    ];
+    const game=new Gameplay(chart(notes));
+    game.press('p1','triangle','left',1000);
+    drawStage(ctx,960,540,groupNotes(game.notes),1050,notes[0].id,true);
+    expect(fillText).not.toHaveBeenCalled();
+    expect(fill).toHaveBeenCalledWith('evenodd');
+    expect(stroke).toHaveBeenCalled();
   });
 });

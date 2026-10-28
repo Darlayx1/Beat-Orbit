@@ -57,13 +57,16 @@
 .play-score{display:flex;align-items:baseline;gap:8px;flex-shrink:0;pointer-events:none}
 .play-score .eyebrow{font-size:8px;letter-spacing:1.4px;color:#8aa2bd}
 .play-score b{font-size:clamp(18px,2.4vw,26px);font-weight:700;letter-spacing:1.5px;font-variant-numeric:tabular-nums;color:#f2f7ff}
-.game-controls{position:absolute;z-index:3;top:calc(var(--edge-top) + 46px);bottom:calc(var(--edge-bottom) + 32px);display:grid;grid-template-columns:var(--pad-size);grid-template-rows:repeat(4,minmax(0,1fr));gap:6px;align-items:center;justify-items:center;height:auto}
+.game-controls{position:absolute;z-index:3;top:calc(var(--edge-top) + 46px);bottom:calc(var(--edge-bottom) + 32px);display:grid;grid-template-columns:var(--pad-size);grid-template-rows:repeat(4,var(--pad-size));gap:0;align-content:center;align-items:stretch;justify-items:stretch;height:auto}
 .left-controls{left:var(--edge-left)}
 .right-controls{right:var(--edge-right)}
-.game-key{position:relative;width:var(--pad-size);height:var(--pad-size);max-height:none;min-height:0;aspect-ratio:1;padding:clamp(9px,1.9vw,16px);border:2.5px solid var(--note-color);border-radius:50%;background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--note-color) 28%,#182638),color-mix(in srgb,var(--note-color) 10%,#0d1622));color:var(--note-color);box-shadow:0 0 16px color-mix(in srgb,var(--note-color) 25%,transparent),inset 0 0 12px color-mix(in srgb,var(--note-color) 18%,transparent);touch-action:none;transition:transform .06s,box-shadow .06s,background .06s}
-.game-key .note-symbol{display:block;width:100%;height:100%;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--note-color) 55%,transparent))}
-.game-key small{position:absolute;bottom:4px;left:0;right:0;font-size:8px;color:#e6f0ff;opacity:.65}
-.game-key.pressed,.game-key:active{background:radial-gradient(circle,color-mix(in srgb,var(--note-color) 58%,#1e2f44),color-mix(in srgb,var(--note-color) 28%,#101b29));transform:scale(.94);border-color:#ffffff;color:#ffffff;box-shadow:0 0 28px var(--note-color),inset 0 0 16px var(--note-color)}
+.game-key{position:relative;width:var(--pad-size);height:var(--pad-size);max-height:none;min-height:0;aspect-ratio:1;padding:clamp(11px,2.1vw,18px);border:0;border-radius:0;background:transparent;color:var(--note-color);box-shadow:none;touch-action:none}
+.game-key::before{content:'';position:absolute;inset:3px;border-radius:50%;pointer-events:none;border:2px solid color-mix(in srgb,var(--note-color) 70%,#0c1118);background:radial-gradient(circle at 34% 28%,color-mix(in srgb,var(--note-color) 34%,#2a3a50),color-mix(in srgb,var(--note-color) 14%,#0c1522) 70%);box-shadow:0 5px 0 #05090f,0 8px 14px #0008,inset 0 2px 2px #ffffff26,inset 0 -3px 5px #0006;transition:transform .07s,box-shadow .07s,background .07s,border-color .07s}
+.game-key .note-symbol{position:relative;z-index:1;display:block;width:100%;height:100%;filter:drop-shadow(0 1px 1px #000a);transition:transform .07s}
+.game-key small{position:absolute;z-index:1;bottom:7px;left:0;right:0;font-size:8px;color:#e6f0ff;opacity:.65;transition:transform .07s}
+.game-key.pressed,.game-key:active{background:transparent;box-shadow:none;transform:none;color:#ffffff}
+.game-key.pressed::before,.game-key:active::before{transform:translateY(4px) scale(.97);background:radial-gradient(circle at 34% 28%,color-mix(in srgb,var(--note-color) 62%,#3a4c64),color-mix(in srgb,var(--note-color) 30%,#101b2a) 70%);border-color:color-mix(in srgb,var(--note-color) 60%,#fff);box-shadow:0 1px 0 #05090f,0 2px 6px #0008,inset 0 2px 6px #0007}
+.game-key.pressed .note-symbol,.game-key:active .note-symbol,.game-key.pressed small,.game-key:active small{transform:translateY(4px) scale(.97)}
 .orbit-stage{position:absolute;inset:calc(var(--edge-top) + 46px) calc(var(--edge-right) + var(--pad-size) + 12px) calc(var(--edge-bottom) + 32px) calc(var(--edge-left) + var(--pad-size) + 12px);width:auto;height:auto;max-width:none;min-width:0;min-height:0;overflow:hidden;border:0;border-radius:0;background:transparent}
 .orbit-center{z-index:2;top:50%;left:50%;transform:translate(-50%,-50%);width:auto;opacity:1;white-space:nowrap}
 .orbit-center strong{font-size:48px;color:#ffffff;text-shadow:0 0 24px #4e84f488}
@@ -94,9 +97,9 @@
 }
 @media(pointer:coarse){.game-key small{display:none}}
 @media(max-height:360px) and (orientation:landscape){
-  .game-stage{--pad-size:max(44px,min(56px,calc((100dvh - var(--edge-top) - var(--edge-bottom) - 82px)/4)))}
+  .game-stage{--pad-size:max(44px,min(56px,calc((100dvh - var(--edge-top) - var(--edge-bottom) - 64px)/4)))}
   .play-top{height:34px}
-  .game-controls{top:calc(var(--edge-top) + 38px);bottom:calc(var(--edge-bottom) + 26px);gap:4px}
+  .game-controls{top:calc(var(--edge-top) + 38px);bottom:calc(var(--edge-bottom) + 26px);gap:0}
   .orbit-stage{top:calc(var(--edge-top) + 38px);bottom:calc(var(--edge-bottom) + 26px)}
 }
 
@@ -118,9 +121,6 @@
 
 /* ===== Gameplay: tactile controls with restrained light instead of neon ===== */
 .game-stage{background:radial-gradient(ellipse at 50% 46%,#16263b,#0a121d 88%)}
-.game-key{border:2px solid color-mix(in srgb,var(--note-color) 70%,#0c1118);background:radial-gradient(circle at 34% 28%,color-mix(in srgb,var(--note-color) 34%,#2a3a50),color-mix(in srgb,var(--note-color) 14%,#0c1522) 70%);box-shadow:0 5px 0 #05090f,0 8px 14px #0008,inset 0 2px 2px #ffffff26,inset 0 -3px 5px #0006;transition:transform .07s,box-shadow .07s,background .07s}
-.game-key .note-symbol{filter:drop-shadow(0 1px 1px #000a)}
-.game-key.pressed,.game-key:active{transform:translateY(4px) scale(.97);background:radial-gradient(circle at 34% 28%,color-mix(in srgb,var(--note-color) 62%,#3a4c64),color-mix(in srgb,var(--note-color) 30%,#101b2a) 70%);border-color:color-mix(in srgb,var(--note-color) 60%,#fff);color:#fff;box-shadow:0 1px 0 #05090f,0 2px 6px #0008,inset 0 2px 6px #0007}
 .orbit-center strong{text-shadow:0 2px 0 #0007;animation:countPop .5s ease-out}
 @keyframes countPop{from{transform:scale(1.5);opacity:0}to{transform:scale(1);opacity:1}}
 

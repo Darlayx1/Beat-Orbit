@@ -44,17 +44,18 @@ async function expectImmersivePlay(page: Page, edgeInset = 8) {
   expect(metrics.border).toBe('0px');expect(metrics.radius).toBe('0px');
   expect(metrics.scrollWidth).toBe(viewport.width);expect(metrics.scrollHeight).toBe(viewport.height);
   const pads=await page.locator('.game-key').evaluateAll(elements=>elements.map(el=>{
-    const r=el.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};
+    const r=el.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,radius:getComputedStyle(el).borderRadius};
   }));
   for(const bank of [pads.slice(0,4),pads.slice(4)]){
     expect(bank).toHaveLength(4);
     for(let i=0;i<4;i++){
+      expect(bank[i].radius).toBe('0px');
       expect(Math.abs(bank[i].width-bank[i].height)).toBeLessThan(2);
       expect(bank[i].width).toBeGreaterThanOrEqual(44);
       expect(Math.abs(bank[i].x-bank[0].x)).toBeLessThan(2);
       expect(bank[i].y).toBeGreaterThanOrEqual(0);
       expect(bank[i].y+bank[i].height).toBeLessThan(viewport.height);
-      if(i)expect(bank[i].y).toBeGreaterThanOrEqual(bank[i-1].y+bank[i-1].height);
+      if(i)expect(Math.abs(bank[i].y-(bank[i-1].y+bank[i-1].height))).toBeLessThan(1.5);
     }
   }
   expect(pads[0].x).toBeCloseTo(edgeInset,1);

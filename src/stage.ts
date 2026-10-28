@@ -61,20 +61,34 @@ export function travelSpan(width: number, height: number) {
   return Math.hypot(r.width, r.height) * .46;
 }
 const direction = (note: Note) => { const a = note.entryAngleDeg * Math.PI / 180; return { x: Math.cos(a), y: Math.sin(a) }; };
+const swingSign = (note: Note) => ((Math.round(note.timeMs / 10) + Math.round(note.target.x * 40) + Math.round(note.target.y * 40) + Math.round(note.entryAngleDeg / 15)) % 2 === 0 ? 1 : -1);
+/**
+ * Project DIVA-style swinging trajectory:
+ * The straight chord between `entryPoint` (remaining = 1) and `targetPoint` (remaining = 0)
+ * stays anchored at both endpoints, while the note arcs smoothly perpendicular to that axis in flight.
+ */
+export function trajectoryPoint(note: Note, remaining: number, width: number, height: number): Point {
+  const target = targetPoint(note, width, height), d = direction(note), span = travelSpan(width, height);
+  const nx = -d.y, ny = d.x;
+  const sinTerm = remaining <= 0 || Math.abs(remaining - 1) < 1e-9 ? 0 : Math.sin(remaining * Math.PI);
+  const swing = sinTerm * span * .15 * swingSign(note);
+  return {
+    x: target.x + d.x * span * remaining + nx * swing,
+    y: target.y + d.y * span * remaining + ny * swing
+  };
+}
 export function entryPoint(note: Note, width: number, height: number): Point {
   const target = targetPoint(note, width, height), d = direction(note), span = travelSpan(width, height);
   return { x: target.x + d.x * span, y: target.y + d.y * span };
 }
 export function notePoint(note: Note, timeMs: number, width: number, height: number): Point {
-  const target = targetPoint(note, width, height), d = direction(note), span = travelSpan(width, height);
   const remaining = Math.max(0, Math.min(1, (note.timeMs - timeMs) / note.travelTimeMs));
-  return { x: target.x + d.x * span * remaining, y: target.y + d.y * span * remaining };
+  return trajectoryPoint(note, remaining, width, height);
 }
 /** Where a Hold's release marker sits; unlike `notePoint` it may start beyond the entry edge. */
 export function tailPoint(note: Note, timeMs: number, width: number, height: number): Point {
-  const target = targetPoint(note, width, height), d = direction(note), span = travelSpan(width, height);
   const remaining = Math.max(0, (note.timeMs + (note.durationMs || 0) - timeMs) / note.travelTimeMs);
-  return { x: target.x + d.x * span * remaining, y: target.y + d.y * span * remaining };
+  return trajectoryPoint(note, remaining, width, height);
 }
 export function groupNotes(notes: VisualNote[]): NoteGroup[] {
   const groups = new Map<string, NoteGroup>();
@@ -98,7 +112,6 @@ export function shade(hex: string, t: number) {
 }
 const withAlpha = (hex: string, alpha: number) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${alpha})`; };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-function circle(c: CanvasRenderingContext2D, x: number, y: number, r: number) { c.beginPath(); c.arc(x, y, r, 0, TAU); }
 
 function drawStageGrid(c: CanvasRenderingContext2D, width: number, height: number) {
   const r = stageRect(width, height), inset = stageInset(r);
@@ -118,124 +131,250 @@ function drawStageGrid(c: CanvasRenderingContext2D, width: number, height: numbe
     c.stroke();
   }
 }
-type TargetState = { hold: boolean; holding: boolean; progress: number; dual: boolean; litSides: Set<string>; done: boolean };
-// A recessed, bevelled socket. Highlights come from a fixed top-left light instead of glow.
-function drawTarget(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, s: TargetState) {
-  const R = 20.25 * u, wellR = 15.75 * u;
-  c.fillStyle = 'rgba(2,6,12,.45)'; c.beginPath(); c.ellipse(p.x + 1.4 * u, p.y + 3.6 * u, R * 1.04, R * .93, 0, 0, TAU); c.fill();
-  if (s.dual) {
-    // Clean button-colored outer concentric ring for Dual Target (no yellow, no protruding wings).
-    c.strokeStyle = 'rgba(2,6,12,.68)'; c.lineWidth = 4.2 * u; circle(c, p.x, p.y, R + 2.6 * u); c.stroke();
-    c.strokeStyle = withAlpha(color, .82); c.lineWidth = 2.1 * u; circle(c, p.x, p.y, R + 2.6 * u); c.stroke();
-    for (const [side, start, end] of [['left', Math.PI * .58, Math.PI * 1.42], ['right', -Math.PI * .42, Math.PI * .42]] as const) {
-      if (s.done || s.litSides.has(side)) {
-        c.strokeStyle = shade(color, .62); c.lineWidth = 2.6 * u; c.lineCap = 'round';
-        c.beginPath(); c.arc(p.x, p.y, R + 2.6 * u, start, end); c.stroke();
-      }
-    }
-  }
-  let g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
-  g.addColorStop(0, s.dual ? shade(color, .52) : '#dfe7f1');
-  g.addColorStop(.45, s.dual ? shade(color, -.08) : '#76869c');
-  g.addColorStop(1, s.dual ? shade(color, -.58) : '#202a38');
-  c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = shade(color, s.holding ? .22 : s.dual ? .32 : -.25); c.lineWidth = 2.4 * u; circle(c, p.x, p.y, R * .84); c.stroke();
-  g = c.createRadialGradient(p.x - R * .25, p.y - R * .3, R * .1, p.x, p.y, wellR);
-  g.addColorStop(0, s.holding ? '#33496a' : s.dual ? shade(color, -.62) : '#2a3a50'); g.addColorStop(1, '#0b131f');
-  c.fillStyle = g; circle(c, p.x, p.y, wellR); c.fill();
-  if (s.dual) {
-    c.strokeStyle = withAlpha(color, .55); c.lineWidth = 1.4 * u; circle(c, p.x, p.y, wellR * .82); c.stroke();
-  }
-  c.lineCap = 'round';
-  c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.8 * u; c.beginPath(); c.arc(p.x, p.y, wellR, Math.PI * .72, Math.PI * 1.78); c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, wellR, -Math.PI * .28, Math.PI * .78); c.stroke();
-  // Embossed symbol: dark offset first, then the button-colored face (solid-filled for Dual, outline for Single).
-  c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = 'rgba(0,0,0,.65)';
-  drawSymbol(c, symbol, p.x + 1 * u, p.y + 1.3 * u, 9.6 * u, s.dual, 2.4 * u);
-  c.strokeStyle = s.dual ? shade(color, .28) : color; c.fillStyle = s.dual ? shade(color, .22) : color;
-  drawSymbol(c, symbol, p.x, p.y, 9.6 * u, s.dual, (s.dual ? 2.5 : 2.35) * u);
-  if (s.hold) {
-    const ring = R + (s.dual ? 6.2 : 5.6) * u;
-    c.strokeStyle = 'rgba(4,8,14,.72)'; c.lineWidth = 4.6 * u; circle(c, p.x, p.y, ring); c.stroke();
-    c.strokeStyle = s.dual ? withAlpha(color, .45) : 'rgba(190,205,225,.28)'; c.lineWidth = 1.4 * u; circle(c, p.x, p.y, ring); c.stroke();
-    if (s.holding && s.progress > 0) {
-      c.strokeStyle = shade(color, .4); c.lineWidth = 4.2 * u;
-      c.beginPath(); c.arc(p.x, p.y, ring, -Math.PI / 2, -Math.PI / 2 + TAU * s.progress); c.stroke();
-    }
-    c.fillStyle = shade(color, s.holding ? .55 : .3); c.font = `800 ${9 * u}px "DM Sans","Segoe UI",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-    c.fillText(s.holding ? 'HOLDING' : s.dual ? 'DUAL HOLD' : 'HOLD', p.x, p.y + ring + 11.5 * u);
-  }
-}
-// Solid, clearly bounded lane between a Hold's head and its release marker. Rungs scroll with the tail.
-function drawHoldLane(c: CanvasRenderingContext2D, head: Point, tail: Point, u: number, color: string, holding: boolean, dual = false) {
-  const dx = tail.x - head.x, dy = tail.y - head.y, length = Math.hypot(dx, dy);
-  if (length < 2) return;
-  const ux = dx / length, uy = dy / length, nx = -uy, ny = ux, width = (dual ? 14.5 : 13) * u;
-  c.lineCap = 'round';
-  const line = (style: string, w: number) => { c.strokeStyle = style; c.lineWidth = w; c.beginPath(); c.moveTo(head.x, head.y); c.lineTo(tail.x, tail.y); c.stroke(); };
-  line('#070d15', width + 5.5 * u);
-  if (dual) line(withAlpha(color, .75), width + 2.4 * u);
-  line(shade(color, holding ? -.02 : -.38), width);
-  line(shade(color, holding ? .52 : dual ? .32 : .12), width * .38);
-  c.lineCap = 'butt'; c.strokeStyle = 'rgba(7,13,21,.55)'; c.lineWidth = 1.7 * u;
-  const spacing = 16 * u;
-  c.beginPath();
-  for (let s = spacing, count = 0; s < length && count < 120; s += spacing, count++) {
-    const px = tail.x - ux * s, py = tail.y - uy * s;
-    c.moveTo(px + nx * width * .5, py + ny * width * .5); c.lineTo(px - nx * width * .5, py - ny * width * .5);
-  }
-  c.stroke();
-}
-function drawReleaseMarker(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual = false) {
-  const r = 17 * u;
-  const diamond = (x: number, y: number, size: number) => { c.beginPath(); c.moveTo(x, y - size); c.lineTo(x + size, y); c.lineTo(x, y + size); c.lineTo(x - size, y); c.closePath(); };
-  c.fillStyle = 'rgba(2,6,12,.44)'; diamond(p.x + 1.4 * u, p.y + 3.4 * u, r); c.fill();
-  if (dual) {
-    c.strokeStyle = shade(color, .32); c.lineWidth = 2.2 * u; diamond(p.x, p.y, r + 2.8 * u); c.stroke();
-  }
-  const g = c.createLinearGradient(p.x - r, p.y - r, p.x + r, p.y + r);
-  g.addColorStop(0, shade(color, .38)); g.addColorStop(.55, shade(color, -.12)); g.addColorStop(1, shade(color, -.55));
-  c.fillStyle = g; diamond(p.x, p.y, r); c.fill();
-  c.lineJoin = 'round'; c.strokeStyle = dual ? shade(color, .38) : shade(color, -.65); c.lineWidth = 1.8 * u; c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,.58)'; c.lineWidth = 1.2 * u; diamond(p.x, p.y, r * .72); c.stroke();
-  c.fillStyle = '#f2f6fb'; c.strokeStyle = '#f2f6fb'; drawSymbol(c, symbol, p.x, p.y, 7.2 * u, true, 1.4 * u);
-}
-// Tapered comet tail behind the note, opposite to its travel direction.
-function drawTrail(c: CanvasRenderingContext2D, p: Point, dir: Point, u: number, color: string, length: number, alpha: number, dual = false) {
-  if (length < 3 || alpha <= 0) return;
-  const half = (dual ? 16.5 : 15) * u, bx = p.x + dir.x * length, by = p.y + dir.y * length, nx = -dir.y, ny = dir.x;
-  const g = c.createLinearGradient(p.x, p.y, bx, by);
-  g.addColorStop(0, withAlpha(color, (dual ? .62 : .5) * alpha)); g.addColorStop(1, withAlpha(color, 0));
-  c.fillStyle = g; c.beginPath(); c.moveTo(p.x + nx * half, p.y + ny * half); c.lineTo(bx, by); c.lineTo(p.x - nx * half, p.y - ny * half); c.closePath(); c.fill();
-  const core = c.createLinearGradient(p.x, p.y, bx, by);
-  core.addColorStop(0, `rgba(255,255,255,${(dual ? .36 : .28) * alpha})`); core.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = core; c.beginPath(); c.moveTo(p.x + nx * half * .42, p.y + ny * half * .42); c.lineTo(p.x + dir.x * length * .74, p.y + dir.y * length * .74); c.lineTo(p.x - nx * half * .42, p.y - ny * half * .42); c.closePath(); c.fill();
-}
-// A convex disc: matte body, rim, inner bevel and an embossed white symbol.
-function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual: boolean, hold: boolean, alpha: number) {
-  const R = 17.75 * u;
-  c.globalAlpha = alpha;
-  c.fillStyle = 'rgba(2,6,12,.42)'; c.beginPath(); c.ellipse(p.x + 1.6 * u, p.y + 3.8 * u, R * .98, R * .65, 0, 0, TAU); c.fill();
-  if (dual) {
-    // Cohesive button-colored outer concentric ring for Dual Note (no yellow, no side chevron wings).
-    c.strokeStyle = 'rgba(2,6,12,.72)'; c.lineWidth = 4.2 * u; circle(c, p.x, p.y, R + 2.5 * u); c.stroke();
-    c.strokeStyle = shade(color, .28); c.lineWidth = 2.1 * u; circle(c, p.x, p.y, R + 2.5 * u); c.stroke();
-  }
-  const g = c.createRadialGradient(p.x - R * .35, p.y - R * .4, R * .08, p.x, p.y, R * 1.05);
-  g.addColorStop(0, shade(color, dual ? .62 : .55)); g.addColorStop(.48, color); g.addColorStop(1, shade(color, -.5));
-  c.fillStyle = g; circle(c, p.x, p.y, R); c.fill();
-  c.strokeStyle = dual ? shade(color, .38) : shade(color, -.65); c.lineWidth = (dual ? 1.8 : 1.5) * u; circle(c, p.x, p.y, R); c.stroke();
-  if (dual) {
-    c.strokeStyle = 'rgba(255,255,255,.52)'; c.lineWidth = 1.3 * u; circle(c, p.x, p.y, R * .78); c.stroke();
+type TargetState = { hold: boolean; holding: boolean; progress: number; approach: number; dual: boolean; litSides: Set<string>; done: boolean };
+
+function traceOuterShape(c: CanvasRenderingContext2D, symbol: SymbolName, x: number, y: number, r: number) {
+  if (symbol === 'circle') {
+    c.moveTo(x + r * .92, y);
+    c.arc(x, y, r * .92, 0, TAU);
+  } else if (symbol === 'square') {
+    const s = r * .84;
+    c.moveTo(x - s, y - s); c.lineTo(x + s, y - s); c.lineTo(x + s, y + s); c.lineTo(x - s, y + s); c.closePath();
+  } else if (symbol === 'triangle') {
+    c.moveTo(x, y - r * 1.04); c.lineTo(x + r * .96, y + r * .76); c.lineTo(x - r * .96, y + r * .76); c.closePath();
   } else {
-    c.lineCap = 'round'; c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.3 * u; c.beginPath(); c.arc(p.x, p.y, R * .8, Math.PI * .9, Math.PI * 1.65); c.stroke();
+    const pts = paths.cross.match(/[-]?(?:\d*\.)?\d+/g)!.map(Number), scale = r * 1.14;
+    c.moveTo(x + pts[0] * scale, y + pts[1] * scale);
+    for (let i = 2; i < pts.length; i += 2) c.lineTo(x + pts[i] * scale, y + pts[i + 1] * scale);
+    c.closePath();
   }
-  if (hold) { c.strokeStyle = dual ? shade(color, .45) : 'rgba(240,245,252,.92)'; c.lineWidth = 2 * u; circle(c, p.x, p.y, R + (dual ? 4.8 : 2.8) * u); c.stroke(); }
-  c.fillStyle = 'rgba(0,0,0,.42)'; c.strokeStyle = 'rgba(0,0,0,.42)';
-  drawSymbol(c, symbol, p.x + .9 * u, p.y + 1.1 * u, 10.2 * u, dual, 2.35 * u);
-  c.fillStyle = '#f3f6fa'; c.strokeStyle = '#f3f6fa';
-  drawSymbol(c, symbol, p.x, p.y, 10.2 * u, dual, (dual ? 2.5 : 2.3) * u);
-  c.globalAlpha = 1;
+}
+
+function traceInnerShape(c: CanvasRenderingContext2D, symbol: SymbolName, x: number, y: number, r: number) {
+  if (symbol === 'circle') {
+    c.moveTo(x + r * .42, y);
+    c.arc(x, y, r * .42, 0, TAU);
+  } else if (symbol === 'square') {
+    const s = r * .39;
+    c.moveTo(x - s, y - s); c.lineTo(x + s, y - s); c.lineTo(x + s, y + s); c.lineTo(x - s, y + s); c.closePath();
+  } else if (symbol === 'triangle') {
+    c.moveTo(x, y - r * .32); c.lineTo(x + r * .41, y + r * .43); c.lineTo(x - r * .41, y + r * .43); c.closePath();
+  } else {
+    const d = r * .46;
+    c.moveTo(x - d, y - d); c.lineTo(x + d, y + d);
+    c.moveTo(x + d, y - d); c.lineTo(x - d, y + d);
+  }
+}
+
+function drawClockHand(c: CanvasRenderingContext2D, p: Point, u: number, r: number, progress: number, color: string, accent = false) {
+  const angle = -Math.PI / 2 + TAU * clamp01(progress);
+  const cos = Math.cos(angle), sin = Math.sin(angle), nx = -sin, ny = cos;
+  const len = r * 1.24, tailLen = r * .16, halfW = 2.1 * u;
+  const tipX = p.x + cos * len, tipY = p.y + sin * len;
+  const baseX = p.x - cos * tailLen, baseY = p.y - sin * tailLen;
+  const shoulderX = p.x + cos * (len * .72), shoulderY = p.y + sin * (len * .72);
+
+  c.save();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(baseX + nx * (halfW * .65), baseY + ny * (halfW * .65));
+  c.lineTo(shoulderX + nx * halfW, shoulderY + ny * halfW);
+  c.lineTo(tipX, tipY);
+  c.lineTo(shoulderX - nx * halfW, shoulderY - ny * halfW);
+  c.lineTo(baseX - nx * (halfW * .65), baseY - ny * (halfW * .65));
+  c.closePath();
+  c.strokeStyle = 'rgba(5,8,14,.92)'; c.lineWidth = 2.6 * u; c.stroke();
+  c.fillStyle = accent ? shade(color, .68) : '#ffffff'; c.fill();
+
+  const piv = 2.6 * u;
+  c.fillStyle = '#090d14';
+  c.fillRect(p.x - piv - .9 * u, p.y - piv - .9 * u, (piv + .9 * u) * 2, (piv + .9 * u) * 2);
+  c.fillStyle = accent ? shade(color, .55) : '#ffffff';
+  c.fillRect(p.x - piv, p.y - piv, piv * 2, piv * 2);
+  c.restore();
+}
+
+// Project DIVA-style flat/clean shape target: dominant black with white border for Single, vibrant symbol color for Dual.
+function drawTarget(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, s: TargetState) {
+  const R = 19.5 * u;
+  c.save();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+
+  // Hold outer shape-conforming frame (replaces text labels with clear structural geometry).
+  if (s.hold) {
+    const holdR = R * 1.24;
+    c.beginPath(); traceOuterShape(c, symbol, p.x, p.y, holdR);
+    c.strokeStyle = 'rgba(5,9,15,.85)'; c.lineWidth = 4.6 * u; c.stroke();
+    c.strokeStyle = s.holding ? shade(color, .45) : s.dual ? withAlpha(color, .82) : 'rgba(255,255,255,.55)';
+    c.lineWidth = (s.holding ? 2.6 : 1.9) * u; c.stroke();
+  }
+
+  // Dual outer colored aura & side-press feedback brackets.
+  if (s.dual) {
+    const dualR = R * 1.12;
+    c.beginPath(); traceOuterShape(c, symbol, p.x, p.y, dualR);
+    c.strokeStyle = 'rgba(5,9,15,.82)'; c.lineWidth = 4.8 * u; c.stroke();
+    c.strokeStyle = withAlpha(color, .9); c.lineWidth = 2.4 * u; c.stroke();
+    for (const [side, dir] of [['left', -1], ['right', 1]] as const) {
+      const lit = s.done || s.litSides.has(side);
+      const wx = p.x + dir * (R * 1.26), wy = p.y;
+      c.beginPath();
+      c.moveTo(wx - dir * 3.8 * u, wy - 6.5 * u);
+      c.lineTo(wx + dir * 2.2 * u, wy);
+      c.lineTo(wx - dir * 3.8 * u, wy + 6.5 * u);
+      c.strokeStyle = 'rgba(5,9,15,.85)'; c.lineWidth = 4.2 * u; c.stroke();
+      c.strokeStyle = lit ? '#ffffff' : shade(color, .38); c.lineWidth = 2.2 * u; c.stroke();
+    }
+  }
+
+  // Main target silhouette (compound path with hollow interior for □, △, ○; solid body + inner cross for ×).
+  c.beginPath();
+  traceOuterShape(c, symbol, p.x, p.y, R);
+  if (symbol !== 'cross') traceInnerShape(c, symbol, p.x, p.y, R);
+
+  if (s.dual) {
+    const g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
+    g.addColorStop(0, shade(color, s.holding ? .42 : .24));
+    g.addColorStop(1, shade(color, s.holding ? -.02 : -.22));
+    c.fillStyle = g;
+  } else {
+    c.fillStyle = s.holding ? '#182232' : '#0b0e15';
+  }
+  c.fill('evenodd');
+
+  // Crisp outer dark contrast halo + white border.
+  c.beginPath(); traceOuterShape(c, symbol, p.x, p.y, R);
+  c.strokeStyle = 'rgba(4,7,12,.9)'; c.lineWidth = 4.6 * u; c.stroke();
+  c.strokeStyle = '#ffffff'; c.lineWidth = 2.3 * u; c.stroke();
+
+  // Inner contour definition.
+  c.beginPath(); traceInnerShape(c, symbol, p.x, p.y, R);
+  if (symbol === 'cross') {
+    c.strokeStyle = s.dual ? '#ffffff' : 'rgba(255,255,255,.78)';
+    c.lineWidth = 2 * u; c.stroke();
+  } else {
+    c.strokeStyle = s.dual ? '#ffffff' : 'rgba(255,255,255,.86)';
+    c.lineWidth = 1.6 * u; c.stroke();
+  }
+
+  // Clockwise pointer needle at the center of the target (indicates head arrival, then end hold release).
+  const handProgress = s.hold && (s.holding || s.approach >= 1) ? s.progress : s.approach;
+  drawClockHand(c, p, u, R, handProgress, color, s.dual || s.holding);
+  c.restore();
+}
+
+// Curved Project DIVA-style Hold pipe connecting Start Hold (or Target while holding) to End Hold along the swing path.
+function drawHoldPipe(c: CanvasRenderingContext2D, note: Note, headRem: number, tailRem: number, width: number, height: number, u: number, color: string, holding: boolean, dual = false) {
+  if (tailRem <= headRem + 1e-4) return;
+  const steps = 24;
+  const pts: Point[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const r = headRem + (tailRem - headRem) * (i / steps);
+    pts.push(trajectoryPoint(note, r, width, height));
+  }
+  const tracePipe = () => {
+    c.beginPath();
+    c.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
+  };
+  const pipeW = (dual ? 15.5 : 13) * u;
+  c.save();
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  tracePipe(); c.strokeStyle = 'rgba(5,9,15,.9)'; c.lineWidth = pipeW + 5.2 * u; c.stroke();
+  if (dual) {
+    tracePipe(); c.strokeStyle = withAlpha(color, .85); c.lineWidth = pipeW + 2.6 * u; c.stroke();
+  }
+  tracePipe(); c.strokeStyle = '#ffffff'; c.lineWidth = pipeW + .8 * u; c.stroke();
+  tracePipe(); c.strokeStyle = shade(color, holding ? .12 : -.08); c.lineWidth = pipeW - 2.4 * u; c.stroke();
+  tracePipe(); c.strokeStyle = shade(color, holding ? .68 : .45); c.lineWidth = pipeW * .38; c.stroke();
+  c.restore();
+}
+
+// End Hold marker: shares the exact symbol shape as Start Hold (no needle on the note itself).
+function drawReleaseMarker(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual = false) {
+  drawNote(c, p, u, color, symbol, dual, true, 1);
+}
+
+// Curved ribbon trail following the note's swinging trajectory.
+function drawTrail(c: CanvasRenderingContext2D, note: Note, remaining: number, width: number, height: number, u: number, color: string, alpha: number, dual = false) {
+  if (alpha <= 0 || remaining >= 1) return;
+  const spanRem = Math.min(1 - remaining, .18);
+  if (spanRem < .01) return;
+  const steps = 8;
+  c.save();
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  for (let i = 0; i < steps; i++) {
+    const r0 = remaining + spanRem * (i / steps);
+    const r1 = remaining + spanRem * ((i + 1) / steps);
+    const p0 = trajectoryPoint(note, r0, width, height);
+    const p1 = trajectoryPoint(note, r1, width, height);
+    const falloff = 1 - i / steps;
+    c.beginPath(); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y);
+    c.strokeStyle = withAlpha(color, (dual ? .62 : .48) * alpha * falloff);
+    c.lineWidth = (dual ? 11 : 8.5) * u * falloff;
+    c.stroke();
+    c.strokeStyle = `rgba(255,255,255,${(dual ? .42 : .3) * alpha * falloff})`;
+    c.lineWidth = (dual ? 4.2 : 3) * u * falloff;
+    c.stroke();
+  }
+  c.restore();
+}
+
+// Project DIVA-style flying note shaped directly as its symbol (triangle, circle, square, cross).
+function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: string, symbol: SymbolName, dual: boolean, hold: boolean, alpha: number) {
+  const R = 18.2 * u;
+  c.save();
+  c.globalAlpha = alpha;
+  c.lineJoin = 'round'; c.lineCap = 'round';
+
+  // Dual note outer double-frame and side chevron wings.
+  if (dual) {
+    const dualR = R * 1.15;
+    c.beginPath(); traceOuterShape(c, symbol, p.x, p.y, dualR);
+    c.strokeStyle = 'rgba(5,9,15,.88)'; c.lineWidth = 4.6 * u; c.stroke();
+    c.strokeStyle = shade(color, .38); c.lineWidth = 2.2 * u; c.stroke();
+    for (const dir of [-1, 1] as const) {
+      const wx = p.x + dir * (R * 1.28), wy = p.y;
+      c.beginPath();
+      c.moveTo(wx - dir * 3.5 * u, wy - 5.8 * u);
+      c.lineTo(wx + dir * 2 * u, wy);
+      c.lineTo(wx - dir * 3.5 * u, wy + 5.8 * u);
+      c.strokeStyle = 'rgba(5,9,15,.88)'; c.lineWidth = 3.8 * u; c.stroke();
+      c.strokeStyle = '#ffffff'; c.lineWidth = 1.9 * u; c.stroke();
+    }
+  }
+
+  // Dark inner backing for hollow shapes so the center reads cleanly over busy trails/pipes.
+  if (symbol !== 'cross') {
+    c.beginPath(); traceInnerShape(c, symbol, p.x, p.y, R);
+    c.fillStyle = 'rgba(10,14,22,.88)';
+    c.fill();
+  }
+
+  // Symbol-shaped body fill (compound hollow path for □, △, ○; solid polygon for ×).
+  c.beginPath();
+  traceOuterShape(c, symbol, p.x, p.y, R);
+  if (symbol !== 'cross') traceInnerShape(c, symbol, p.x, p.y, R);
+  const g = c.createLinearGradient(p.x - R, p.y - R, p.x + R, p.y + R);
+  g.addColorStop(0, shade(color, dual ? .42 : .28));
+  g.addColorStop(.55, color);
+  g.addColorStop(1, shade(color, -.22));
+  c.fillStyle = g;
+  c.fill('evenodd');
+
+  // Outer contrast stroke + crisp border (white for Hold/Dual, bright tinted white for Single Tap).
+  c.beginPath(); traceOuterShape(c, symbol, p.x, p.y, R);
+  c.strokeStyle = 'rgba(5,9,15,.92)'; c.lineWidth = 4.4 * u; c.stroke();
+  c.strokeStyle = hold || dual ? '#ffffff' : shade(color, .72);
+  c.lineWidth = (hold || dual ? 2.2 : 1.8) * u; c.stroke();
+
+  // Inner cutout / cross highlight.
+  c.beginPath(); traceInnerShape(c, symbol, p.x, p.y, R);
+  c.strokeStyle = '#ffffff';
+  c.lineWidth = (symbol === 'cross' ? 2.1 : 1.5) * u;
+  c.stroke();
+
+  c.restore();
 }
 
 export function drawStage(c: CanvasRenderingContext2D, width: number, height: number, groups: NoteGroup[], timeMs: number, selected?: string, framed = true) {
@@ -253,8 +392,11 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
     const n = group[0], hold = n.type === 'hold', holding = group.some(item => item.state === 'holding');
     const target = targetPoint(n, width, height), point = notePoint(n, timeMs, width, height);
     const remaining = (n.timeMs - timeMs) / n.travelTimeMs, dual = group.dual && group.length > 1;
-    return { group, n, hold, holding, target, point, tail: hold ? tailPoint(n, timeMs, width, height) : undefined, color: COLORS[SYMBOLS.indexOf(n.symbol)], remaining, dir: direction(n),
+    const tailRemaining = hold ? Math.max(0, (n.timeMs + (n.durationMs || 0) - timeMs) / n.travelTimeMs) : 0;
+    const tailApproach = hold ? clamp01(1 - tailRemaining) : 0;
+    return { group, n, hold, holding, target, point, tail: hold ? tailPoint(n, timeMs, width, height) : undefined, color: COLORS[SYMBOLS.indexOf(n.symbol)], remaining, tailRemaining, tailApproach, dir: direction(n),
       state: { hold, holding, dual, done: false, litSides: new Set(group.flatMap(item => [...(item.unit?.presses.keys() || [])])),
+        approach: clamp01(1 - remaining),
         progress: hold ? clamp01((timeMs - n.timeMs) / (n.durationMs || 1)) : 0 } as TargetState };
   });
   const chordPoints = new Map<string, Point>();
@@ -264,13 +406,18 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
     if (previous) { c.strokeStyle = 'rgba(199,217,237,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(previous.x, previous.y); c.lineTo(target.x, target.y); c.stroke(); }
     chordPoints.set(group.chordKey, target);
   }
-  for (const it of items) if (it.hold) drawHoldLane(c, it.holding || it.remaining <= 0 ? it.target : it.point, it.tail!, u, it.color, it.holding, it.state.dual);
+  for (const it of items) {
+    if (it.hold) {
+      const headRem = it.holding || it.remaining <= 0 ? 0 : Math.max(0, it.remaining);
+      drawHoldPipe(c, it.n, headRem, it.tailRemaining, width, height, u, it.color, it.holding, it.state.dual);
+    }
+  }
   for (const it of items) drawTarget(c, it.target, u, it.color, it.n.symbol, it.state);
   for (const it of items) if (it.hold) drawReleaseMarker(c, it.tail!, u, it.color, it.n.symbol, it.state.dual);
   for (const it of items) {
     if (it.holding) continue;
-    const dist = Math.hypot(it.point.x - it.target.x, it.point.y - it.target.y), alpha = clamp01((1 - it.remaining) / .12);
-    drawTrail(c, it.point, it.dir, u, it.color, Math.min(76 * u, dist), alpha, it.state.dual);
+    const alpha = clamp01((1 - it.remaining) / .12);
+    drawTrail(c, it.n, Math.max(0, it.remaining), width, height, u, it.color, alpha, it.state.dual);
     drawNote(c, it.point, u, it.color, it.n.symbol, it.state.dual, it.hold, alpha);
   }
   for (const it of items) {
