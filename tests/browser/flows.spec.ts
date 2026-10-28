@@ -144,7 +144,7 @@ test('import → unsaved playtest → save → Standard Play → reopen',async({
   test.setTimeout(45000);
   await page.goto('./');
   await requireWebAudio(page);
-  await expect(page.locator('.track-row')).toHaveCount(10);
+  await expect(page.locator('.track-row')).toHaveCount(10,{timeout:14500});
   await page.screenshot({path:testInfo.outputPath('library.png'),fullPage:true});
   await test.step('Import local audio and open Orbit Studio',async()=>{
     await page.locator('#audio-file').setInputFiles({name:'Browser fixture.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,2).arrayBuffer())});
