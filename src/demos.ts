@@ -551,12 +551,15 @@ export function* generateDemoTrackAudio(
   view.setUint16(34, 16, true);
   write(36, 'data');
   view.setUint32(40, count * 2, true);
+  const samples = new Int16Array(raw, 44, count);
 
   const beatsPerBar = spec.timeSignature.numerator;
   const stepsPerBar = beatsPerBar * 4; // 16th-note resolution
   const stepSeconds = 60 / bpm / 4;
+  const invRate = 1 / rate;
+  const invStepSamples = 1 / (rate * stepSeconds);
 
-  // Continuous oscillator phases (0..TABLE_SIZE) to prevent clicks across step boundaries
+  // Continuous oscillator phases to prevent clicks across step boundaries
   let bassPhase = 0;
   let padPhase1 = 0;
   let padPhase2 = 0;
@@ -564,7 +567,7 @@ export function* generateDemoTrackAudio(
   let leadPhase = 0;
   let arpPhase = 0;
   let kickPhase = 0;
-  let noise = 18273 + spec.level * 7919;
+  let noise = (18273 + spec.level * 7919) | 0;
 
   // Pre-calculate per-sample decay multipliers
   const kickDecay = Math.exp(-16 / rate);
@@ -608,8 +611,8 @@ export function* generateDemoTrackAudio(
     // Yield every 131,072 samples (~8s of audio) to balance responsiveness and minimal timer overhead
     if (i > 0 && (i & 131071) === 0) yield;
 
-    const t = i / rate;
-    const stepIndex = Math.floor(t / stepSeconds);
+    const t = i * invRate;
+    const stepIndex = (i * invStepSamples) | 0;
 
     if (stepIndex !== currentStep) {
       currentStep = stepIndex;
@@ -754,15 +757,17 @@ export function* generateDemoTrackAudio(
       }
     }
 
-    // Per-sample synthesis using precomputed wavetables
-    noise = (noise * 16807) % 2147483647;
-    const white = (noise / 1073741823.5) - 1;
+    // Per-sample synthesis using precomputed wavetables & fast 32-bit xorshift PRNG
+    noise ^= noise << 13;
+    noise ^= noise >> 17;
+    noise ^= noise << 5;
+    const white = (noise & 0x7fffffff) * 9.313225746154785e-10 - 1;
 
     // 1. Kick (Fundamental + rapid pitch-drop punch)
     let kickSample = 0;
     if (kickEnv > 0.001) {
       const kickFreq = 46 + 115 * kickPitchEnv;
-      kickPhase = (kickPhase + kickFreq * scaleFactor) % TABLE_SIZE;
+      kickPhase += kickFreq * scaleFactor;
       kickSample = SIN_TABLE[kickPhase & TABLE_MASK] * kickEnv * 0.42;
       kickEnv *= kickDecay;
       kickPitchEnv *= kickPitchDecay;
@@ -785,15 +790,15 @@ export function* generateDemoTrackAudio(
     }
 
     // 4. Bass (Sidechain-ducked against kick for modern dynamic clarity)
-    bassPhase = (bassPhase + bassInc) % TABLE_SIZE;
+    bassPhase += bassInc;
     const duck = 1 - sidechainEnv * 0.55;
     const bassSample = BASS_TABLE[bassPhase & TABLE_MASK] * (0.35 + 0.65 * bassEnv) * bassGain * duck;
     bassEnv *= bassDecay;
 
     // 5. Lush 3-voice Detuned Pad
-    padPhase1 = (padPhase1 + padInc1) % TABLE_SIZE;
-    padPhase2 = (padPhase2 + padInc2) % TABLE_SIZE;
-    padPhase3 = (padPhase3 + padInc3) % TABLE_SIZE;
+    padPhase1 += padInc1;
+    padPhase2 += padInc2;
+    padPhase3 += padInc3;
     const padSample =
       (PAD_TABLE[padPhase1 & TABLE_MASK] +
         PAD_TABLE[padPhase2 & TABLE_MASK] * 0.8 +
@@ -802,28 +807,30 @@ export function* generateDemoTrackAudio(
       duck;
 
     // 6. Arpeggio
-    arpPhase = (arpPhase + arpInc) % TABLE_SIZE;
+    arpPhase += arpInc;
     const arpSample = SIN_TABLE[arpPhase & TABLE_MASK] * arpEnv * arpGain;
     arpEnv *= arpDecay;
 
     // 7. Expressive Lead Melody with subtle vibrato
     const vibrato = 1 + SIN_TABLE[(i * 14) & TABLE_MASK] * 0.0035;
-    leadPhase = (leadPhase + leadInc * vibrato) % TABLE_SIZE;
+    leadPhase += leadInc * vibrato;
     const leadSample = LEAD_TABLE[leadPhase & TABLE_MASK] * leadEnv * leadGain;
     leadEnv *= leadDecay;
 
     // 8. Build-up Riser
     let riserSample = 0;
     if (riserGain > 0) {
-      riserPhase = (riserPhase + riserInc) % TABLE_SIZE;
+      riserPhase += riserInc;
       riserSample = (SIN_TABLE[riserPhase & TABLE_MASK] * 0.6 + white * 0.4) * riserGain;
     }
 
-    // Master mix + smooth soft-clipping limiter + fade in/out
+    // Master mix + Padé rational tanh soft-clipping limiter + fade in/out
     const fade = Math.min(1, t * 1.8, Math.max(0, (seconds - t) / 2.2));
-    const mix = (kickSample + snareSample + hatSample + bassSample + padSample + arpSample + leadSample + riserSample) * fade;
-    const softClipped = Math.tanh(mix * 1.25);
-    view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(softClipped * 29500))), true);
+    const x = (kickSample + snareSample + hatSample + bassSample + padSample + arpSample + leadSample + riserSample) * fade * 1.25;
+    const x2 = x * x;
+    const softClipped = x > 3 ? 1 : x < -3 ? -1 : (x * (27 + x2)) / (27 + 9 * x2);
+    const pcm = (softClipped * 29500) | 0;
+    samples[i] = pcm > 32767 ? 32767 : pcm < -32767 ? -32767 : pcm;
   }
 
   return new Blob([raw], { type: 'audio/wav' });
