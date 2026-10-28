@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { ConflictError, Repository } from '../src/storage';
+import { SchemaNotInitializedError, SupabaseCloudDriver, type CloudDriver } from '../src/cloud-driver';
+import { clone, parseChart, type Chart, type Draft, type Result, type Song } from '../src/domain';
 import { chart, song, tap } from './fixtures';
 
 let repo: Repository;
@@ -141,5 +143,201 @@ describe('transactional local library',()=>{
     await repo.addResult({id:'result',chartId:saved.chartId,revision:1,title:song.title,score:1000,accuracy:100,maxCombo:1,perfect:1,great:0,good:0,miss:0,createdAt:new Date().toISOString()});
     await repo.deleteSong(song.id);
     expect(await repo.songs()).toEqual([]);expect(await repo.charts()).toEqual([]);expect(await repo.drafts()).toEqual([]);expect(await repo.results()).toEqual([]);expect(await repo.audio(song.id)).toBeUndefined();
+  });
+});
+
+class InMemoryCloudDriver implements CloudDriver {
+  private songsByUser = new Map<string, Map<string, Song>>();
+  private chartsByUser = new Map<string, Map<string, Chart>>();
+  private draftsByUser = new Map<string, Map<string, Draft>>();
+  private resultsByUser = new Map<string, Map<string, Result>>();
+  private settingsByUser = new Map<string, Map<string, unknown>>();
+  private audioBucket = new Map<string, Blob>();
+
+  private map<T>(store: Map<string, Map<string, T>>, userId: string): Map<string, T> {
+    if (!store.has(userId)) store.set(userId, new Map());
+    return store.get(userId)!;
+  }
+
+  async fetchWorkspace(userId: string) {
+    return {
+      songs: Array.from(this.map(this.songsByUser, userId).values()).map(clone),
+      charts: Array.from(this.map(this.chartsByUser, userId).values()).map(clone),
+      drafts: Array.from(this.map(this.draftsByUser, userId).values()).map(clone),
+      results: Array.from(this.map(this.resultsByUser, userId).values()).map(clone),
+      demoSeeded: this.map(this.settingsByUser, userId).get('demo-seeded') as number | undefined
+    };
+  }
+  async getSetting(userId: string, key: string) {
+    return this.map(this.settingsByUser, userId).get(key);
+  }
+  async setSetting(userId: string, key: string, value: unknown) {
+    this.map(this.settingsByUser, userId).set(key, clone(value));
+  }
+  async seed(userId: string, songs: Song[], charts: Chart[]) {
+    const sMap = this.map(this.songsByUser, userId);
+    const cMap = this.map(this.chartsByUser, userId);
+    if (this.map(this.settingsByUser, userId).get('demo-seeded') === 2) return;
+    songs.forEach(s => { if (!sMap.has(s.id)) sMap.set(s.id, clone(s)); });
+    charts.forEach(c => { if (!cMap.has(c.chartId)) cMap.set(c.chartId, parseChart(clone(c))); });
+    this.map(this.settingsByUser, userId).set('demo-seeded', 2);
+  }
+  async addSong(userId: string, s: Song, audioData: ArrayBuffer, mimeType: string) {
+    if (s.source === 'imported') {
+      this.audioBucket.set(`${userId}/${s.id}`, new Blob([audioData], { type: mimeType }));
+    }
+    this.map(this.songsByUser, userId).set(s.id, clone(s));
+  }
+  async updateSong(userId: string, s: Song) {
+    this.map(this.songsByUser, userId).set(s.id, clone(s));
+  }
+  async relinkSong(userId: string, s: Song, audioData: ArrayBuffer, mimeType: string) {
+    this.audioBucket.set(`${userId}/${s.id}`, new Blob([audioData], { type: mimeType }));
+    this.map(this.songsByUser, userId).set(s.id, clone(s));
+  }
+  async downloadAudio(userId: string, songId: string) {
+    return this.audioBucket.get(`${userId}/${songId}`);
+  }
+  async saveChart(userId: string, c: Chart, expectedRevision: number, onConflict: () => Error) {
+    const cMap = this.map(this.chartsByUser, userId);
+    const current = cMap.get(c.chartId)?.revision || 0;
+    if (current !== expectedRevision) throw onConflict();
+    const updated = parseChart({ ...clone(c), revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
+    cMap.set(updated.chartId, updated);
+    this.map(this.draftsByUser, userId).delete(updated.chartId);
+    return clone(updated);
+  }
+  async saveDraft(userId: string, d: Draft, onConflict: () => Error) {
+    const current = this.map(this.chartsByUser, userId).get(d.chartId)?.revision || 0;
+    if (current !== d.baseRevision) throw onConflict();
+    this.map(this.draftsByUser, userId).set(d.chartId, clone(d));
+  }
+  async deleteDraft(userId: string, chartId: string) {
+    this.map(this.draftsByUser, userId).delete(chartId);
+  }
+  async deleteChart(userId: string, chartId: string) {
+    this.map(this.chartsByUser, userId).delete(chartId);
+    this.map(this.draftsByUser, userId).delete(chartId);
+    const rMap = this.map(this.resultsByUser, userId);
+    for (const [k, r] of rMap.entries()) if (r.chartId === chartId) rMap.delete(k);
+  }
+  async deleteSong(userId: string, songId: string) {
+    this.map(this.songsByUser, userId).delete(songId);
+    this.audioBucket.delete(`${userId}/${songId}`);
+    const dMap = this.map(this.draftsByUser, userId);
+    for (const [k, d] of dMap.entries()) if (d.chart.songId === songId) dMap.delete(k);
+    const cMap = this.map(this.chartsByUser, userId);
+    for (const [cid, c] of cMap.entries()) {
+      if (c.songId === songId) {
+        cMap.delete(cid);
+        dMap.delete(cid);
+        const rMap = this.map(this.resultsByUser, userId);
+        for (const [rid, r] of rMap.entries()) if (r.chartId === cid) rMap.delete(rid);
+      }
+    }
+  }
+  async addResult(userId: string, r: Result) {
+    this.map(this.resultsByUser, userId).set(r.id, clone(r));
+  }
+}
+
+describe('Supabase hybrid cloud storage & multi-user isolation', () => {
+  it('isolates songs, charts, drafts, and audio per authenticated user account', async () => {
+    const cloud = new InMemoryCloudDriver();
+    const repoA = new Repository(8000, cloud);
+    repoA.enableCloud('user-alpha', cloud);
+    await repoA.open();
+    await repoA.addSong({ ...song, id: 'track-1', title: 'Alpha Exclusive' }, new Blob(['alpha-bytes'], { type: 'audio/wav' }));
+    await repoA.saveChart({ ...chart(), chartId: 'chart-alpha', songId: 'track-1', name: 'Alpha Beatmap' }, 0);
+    repoA.close();
+
+    // User Beta logs in on the same browser: previous user's local cache is cleared and isolated
+    const repoB = new Repository(8000, cloud);
+    repoB.enableCloud('user-beta', cloud);
+    await repoB.open();
+    expect(await repoB.songs()).toEqual([]);
+    expect(await repoB.charts()).toEqual([]);
+    expect(await repoB.audio('track-1')).toBeUndefined();
+
+    await repoB.addSong({ ...song, id: 'track-1', title: 'Beta Track' }, new Blob(['beta-bytes'], { type: 'audio/mp3' }));
+    repoB.close();
+
+    // User Alpha logs back in on a fresh device (empty IndexedDB) and downloads from Supabase cloud
+    globalThis.indexedDB = new IDBFactory();
+    const repoA2 = new Repository(8000, cloud);
+    repoA2.enableCloud('user-alpha', cloud);
+    await repoA2.open();
+    expect((await repoA2.songs()).map(s => s.title)).toEqual(['Alpha Exclusive']);
+    expect((await repoA2.charts()).map(c => c.name)).toEqual(['Alpha Beatmap']);
+    const downloadedAudio = await repoA2.audio('track-1');
+    expect(await downloadedAudio!.text()).toBe('alpha-bytes');
+    repoA2.close();
+  });
+
+  it('enforces cloud optimistic locking ConflictError across concurrent devices', async () => {
+    const cloud = new InMemoryCloudDriver();
+    const device1 = new Repository(8000, cloud);
+    device1.enableCloud('user-1', cloud);
+    await device1.open();
+    const initial = await device1.saveChart(chart(), 0);
+
+    const device2 = new Repository(8000, cloud);
+    device2.enableCloud('user-1', cloud);
+    await device2.open();
+
+    await device1.saveChart({ ...initial, name: 'Device 1 update' }, 1);
+    await expect(device2.saveChart({ ...initial, name: 'Stale Device 2 update' }, 1)).rejects.toBeInstanceOf(ConflictError);
+    await expect(
+      device2.saveDraft({ chartId: initial.chartId, chart: initial, baseRevision: 1, savedAt: new Date().toISOString() })
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    device1.close();
+    device2.close();
+  });
+
+  it('synthesizes demo audio on demand when logged in on a new device without uploading demo WAVs', async () => {
+    const cloud = new InMemoryCloudDriver();
+    const device1 = new Repository(8000, cloud);
+    device1.enableCloud('user-demo', cloud);
+    await device1.open();
+    const demoSong: Song = { ...song, id: 'demo-afterglow', source: 'demo', durationMs: 2000 };
+    await device1.seed([demoSong], [new Blob(['local-demo'], { type: 'audio/wav' })], [chart()]);
+    device1.close();
+
+    // New device with empty IndexedDB: demo metadata is fetched from cloud, audio is synthesized locally
+    globalThis.indexedDB = new IDBFactory();
+    const device2 = new Repository(8000, cloud);
+    device2.enableCloud('user-demo', cloud);
+    await device2.open();
+    expect((await device2.songs())[0].id).toBe('demo-afterglow');
+    const generated = await device2.audio('demo-afterglow');
+    expect(generated).toBeDefined();
+    expect(generated!.type).toBe('audio/wav');
+    device2.close();
+  });
+
+  it('rolls back uploaded Storage object in SupabaseCloudDriver if database song insert fails', async () => {
+    const removedPaths: string[] = [];
+    const mockClient = {
+      storage: {
+        from: () => ({
+          upload: vi.fn().mockResolvedValue({ data: { path: 'u1/s1' }, error: null }),
+          remove: vi.fn().mockImplementation(async (paths: string[]) => {
+            removedPaths.push(...paths);
+            return { data: [], error: null };
+          })
+        })
+      },
+      from: () => ({
+        insert: vi.fn().mockResolvedValue({
+          error: { code: '42P01', message: 'relation "public.songs" does not exist' }
+        })
+      })
+    };
+    const driver = new SupabaseCloudDriver(() => mockClient as never);
+    await expect(
+      driver.addSong('u1', { ...song, id: 's1', source: 'imported' }, new ArrayBuffer(8), 'audio/wav')
+    ).rejects.toBeInstanceOf(SchemaNotInitializedError);
+    expect(removedPaths).toEqual(['u1/s1']);
   });
 });

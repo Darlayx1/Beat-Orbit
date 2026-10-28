@@ -11,6 +11,16 @@ export const test = base.extend({
     const options = { baseURL, viewport, hasTouch, isMobile, acceptDownloads: true };
     if (browserName !== 'webkit') {
       const context = await browser.newContext(options);
+      await context.addInitScript(() => {
+        try {
+          if (!window.localStorage.getItem('beatorbit-test-user')) {
+            window.localStorage.setItem(
+              'beatorbit-test-user',
+              JSON.stringify({ id: 'e2e-tester', email: 'e2e@beatorbit.app', displayName: 'E2E Tester' })
+            );
+          }
+        } catch {}
+      });
       try { await use(context); } finally { await context.close(); }
       return;
     }
@@ -19,6 +29,16 @@ export const test = base.extend({
     const profile = path.resolve(await mkdtemp(path.join(tmpdir(), 'bo-webkit-')));
     if (path.dirname(profile) !== path.resolve(tmpdir()) || !path.basename(profile).startsWith('bo-webkit-')) throw new Error('Unsafe test profile path.');
     const context = await webkit.launchPersistentContext(profile, options);
+    await context.addInitScript(() => {
+      try {
+        if (!window.localStorage.getItem('beatorbit-test-user')) {
+          window.localStorage.setItem(
+            'beatorbit-test-user',
+            JSON.stringify({ id: 'e2e-tester', email: 'e2e@beatorbit.app', displayName: 'E2E Tester' })
+          );
+        }
+      } catch {}
+    });
     try { await use(context); }
     finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
   }

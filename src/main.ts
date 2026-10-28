@@ -8,6 +8,8 @@ import './style.css';
 import { GLYPHS, LIMITS, SYMBOLS, clone, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
 import { AudioTransport, DEFAULT_AUDIO_SETTINGS, HIT_PRESETS, makeDemoAudioAsync, type AudioSettings } from './audio';
 import { DEMO_SPECS, buildDemoChart } from './demos';
+import { auth, type AuthUser } from './auth';
+import { AuthView, type AuthMode } from './auth-view';
 import { Repository, storageMessage } from './storage';
 import { symbolSVG } from './stage';
 import { BootSession } from './boot';
@@ -19,7 +21,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
 const repo = new Repository(), transport = new AudioTransport();
 let songs: Song[] = [], charts: Chart[] = [], results: Result[] = [], drafts: Draft[] = [];
-let page: 'library' | 'studio' | 'play' | 'results' = 'library';
+let page: 'auth' | 'library' | 'studio' | 'play' | 'results' = 'auth';
 let studio: Studio | undefined, game: PlayView | undefined;
 let loadedSong: string | undefined, previewSong: string | undefined;
 let filter: 'all' | 'imported' | 'demo' = 'all', search = '', sort = 'recent';
@@ -88,14 +90,17 @@ function modalBusy(root: HTMLElement, busy: boolean) {
 async function refreshData() { [songs,charts,results,drafts]=await Promise.all([repo.songs(),repo.charts(),repo.results(),repo.drafts()]); }
 function logo() { return '<span class="brand-icon"><svg viewBox="0 0 40 40" fill="none"><ellipse cx="20" cy="20" rx="17" ry="8" transform="rotate(-38 20 20)" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="20" r="4.5" fill="currentColor"/><circle cx="33" cy="10" r="3" fill="currentColor"/></svg></span><span>beat<span class="brand-light">orbit</span><sup>®</sup></span>'; }
 function shell(active: string, content: string, immersive = false) {
+  const userName = auth.user?.displayName || 'Orbit Player';
+  const userEmail = auth.user?.email || 'Supabase Cloud';
+  const userInitial = (userName.trim()[0] || 'B').toUpperCase();
   app.innerHTML=`<div class="app-shell ${active==='studio'?'studio-shell':''} ${active==='play'?'play-shell':''} ${immersive?'gameplay-shell':''}">
     <aside class="sidebar"><a href="#" class="brand" data-action="library" aria-label="BeatOrbit library">${logo()}</a><div class="workspace-label">YOUR SPACE</div><nav aria-label="Main navigation">
       <button class="nav-item ${active==='library'?'active':''}" data-action="library">${icon('music')}<span>Music Library</span><small>${songs.length}</small></button>
       <button class="nav-item ${active==='studio'?'active':''}" data-action="studio-picker">${icon('studio')}<span>Orbit Studio</span><span class="new-label">CREATE</span></button>
       <button class="nav-item" data-action="activity">${icon('clock')}<span>Recent Sessions</span></button>
     </nav><div class="sidebar-separator"></div><div class="workspace-label">GET IN THE FLOW</div><button class="nav-item" data-action="guide">${icon('info')}<span>How to play</span></button><button class="nav-item" data-action="import-json">${icon('download')}<span>Import chart</span></button>
-    <div class="sidebar-bottom"><div class="local-card">${icon('shield')}<div><strong>Local. Private. Yours.</strong><p>No uploads. Just your music.</p></div><span class="live-dot"></span></div><div class="sidebar-foot"><span>BEATORBIT / V0.1</span><button class="icon-button" data-action="settings" title="Settings" aria-label="Settings">⚙</button></div></div></aside>
-    <div class="app-main"><header class="app-header">${active==='studio'?'<button class="mobile-brand studio-mobile-library" data-action="library" aria-label="Back to Music Library"><span>Music Library</span></button>':`<div class="mobile-brand">${logo()}</div>`}<span class="header-label">YOUR MUSIC. YOUR ORBIT.</span><div class="header-right"><span class="local-status"><span class="live-dot"></span> LOCAL WORKSPACE</span><button class="avatar" data-action="settings" aria-label="Workspace settings">B</button></div></header><main id="main-content">${content}</main><footer class="app-footer"><span>Made for the music you love.</span><span>△ &nbsp; ○ &nbsp; □ &nbsp; × <i>Find your rhythm.</i></span></footer></div></div><input type="file" id="audio-file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden><input type="file" id="chart-file" accept=".json,application/json" hidden>`;
+    <div class="sidebar-bottom"><div class="local-card">${icon('cloud')}<div><strong>${esc(userName)}</strong><p>${esc(userEmail)}</p></div><span class="live-dot"></span></div><div class="sidebar-foot"><span>SUPABASE CLOUD</span><div class="sidebar-foot-actions"><button class="icon-button" data-action="settings" title="Settings" aria-label="Settings">⚙</button><button class="icon-button" data-action="signout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div></div></aside>
+    <div class="app-main"><header class="app-header">${active==='studio'?'<button class="mobile-brand studio-mobile-library" data-action="library" aria-label="Back to Music Library"><span>Music Library</span></button>':`<div class="mobile-brand">${logo()}</div>`}<span class="header-label">YOUR MUSIC. YOUR ORBIT.</span><div class="header-right"><span class="local-status"><span class="live-dot"></span> CLOUD SYNC · ${esc(userName.toUpperCase())}</span><button class="avatar" data-action="settings" aria-label="Workspace settings">${esc(userInitial)}</button><button class="icon-button" data-action="signout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></header><main id="main-content">${content}</main><footer class="app-footer"><span>Made for the music you love.</span><span>△ &nbsp; ○ &nbsp; □ &nbsp; × <i>Find your rhythm.</i></span></footer></div></div><input type="file" id="audio-file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden><input type="file" id="chart-file" accept=".json,application/json" hidden>`;
   app.querySelector<HTMLInputElement>('#audio-file')!.addEventListener('change',e=>{const input=e.target as HTMLInputElement;const file=input.files?.[0];input.value='';if(file)void importAudio(file);});
   app.querySelector<HTMLInputElement>('#chart-file')!.addEventListener('change',e=>{const input=e.target as HTMLInputElement;const file=input.files?.[0];input.value='';if(file)void importJSON(file).catch(e=>toast(storageMessage(e),true));});
 }
@@ -368,9 +373,12 @@ function bindAudioPanel(root: HTMLElement) {
 async function settings() {
   let estimate: StorageEstimate={};try{estimate=await navigator.storage?.estimate?.()||{};}catch{/* optional */}
   const used=songs.reduce((sum,s)=>sum+s.fileSize,0);
-  const root=modal('Your local workspace',`${audioPanel()}<div class="settings-stat"><span>Audio in your library</span><b>${(used/1024/1024).toFixed(1)} MiB</b></div><div class="settings-stat"><span>Estimated browser usage</span><b>${estimate.usage?(estimate.usage/1024/1024).toFixed(1)+' MiB':'Unavailable'}</b></div><p class="small-muted">Import limits: 64 MiB per file, 10 minutes, and 128 MiB decoded PCM. Decoded audio can use much more memory than its file size.</p><p class="privacy-note">${icon('shield')} Music and charts are stored in this browser, on this device. Clearing site data removes them. Export chart JSON and keep the original audio files.</p><button class="button ghost" id="persist-storage">Request persistent storage</button><p id="persist-status" class="small-muted"></p>`,'<button class="button primary" data-cancel>Done</button>');
+  const userName = auth.user?.displayName || 'Orbit Player';
+  const userEmail = auth.user?.email || 'Authenticated Session';
+  const root=modal('Account & workspace',`<div class="account-card">${icon('user')}<div class="account-meta"><strong>${esc(userName)}</strong><span>${esc(userEmail)}</span></div><button class="button danger subtle" id="sign-out-button">${icon('logout')} Sign out</button></div>${audioPanel()}<div class="settings-stat"><span>Audio in your library</span><b>${(used/1024/1024).toFixed(1)} MiB</b></div><div class="settings-stat"><span>Estimated browser cache</span><b>${estimate.usage?(estimate.usage/1024/1024).toFixed(1)+' MiB':'Unavailable'}</b></div><p class="small-muted">Import limits: 64 MiB per file, 10 minutes, and 128 MiB decoded PCM. Decoded audio can use much more memory than its file size.</p><p class="privacy-note">${icon('cloud')} Your library, beatmaps, drafts, and results are synced to your Supabase account with local audio caching for instant playback.</p><button class="button ghost" id="persist-storage">Request persistent storage</button><p id="persist-status" class="small-muted"></p>`,'<button class="button primary" data-cancel>Done</button>');
   bindAudioPanel(root);
-  root.querySelector('#persist-storage')!.addEventListener('click',async()=>{const status=root.querySelector('#persist-status')!;try{status.textContent=navigator.storage?.persist?(await navigator.storage.persist()?'Persistent storage granted. Manual clearing of site data still removes your library.':'The browser did not grant persistent storage. Keep backups of your charts.'):'Persistent storage is not available in this browser.';}catch{status.textContent='Persistent storage could not be requested.';}});
+  root.querySelector('#sign-out-button')!.addEventListener('click',()=>{closeModal();void signOut();});
+  root.querySelector('#persist-storage')!.addEventListener('click',async()=>{const status=root.querySelector('#persist-status')!;try{status.textContent=navigator.storage?.persist?(await navigator.storage.persist()?'Persistent storage granted. Manual clearing of site data still removes your local audio cache.':'The browser did not grant persistent storage. Keep backups of your charts.'):'Persistent storage is not available in this browser.';}catch{status.textContent='Persistent storage could not be requested.';}});
 }
 function activity() {
   const sorted=[...results].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
@@ -410,6 +418,7 @@ app.addEventListener('click',e=>{
     if(action==='manage-song'&&song)manageSong(song);
     if(action==='guide')guide();
     if(action==='settings')await settings();
+    if(action==='signout')await signOut();
     if(action==='activity')activity();
     if(action==='recover')recover();
     if(action==='retry'&&lastSong&&lastChart)await startGame(lastSong,lastChart,resultPlaytest);
@@ -421,17 +430,52 @@ window.addEventListener('beforeunload',e=>{if(studio?.dirty){e.preventDefault();
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&studio)void studio.flushDraft().catch(()=>{});});
 let boot: BootSession | undefined;
 let previewStarted = false;
-async function init() {
+const authView = new AuthView(app, auth, logo(), user => {
+  void openWorkspace(user);
+});
+
+function showAuth(mode: AuthMode = 'login') {
+  boot?.cancel();
+  if (game) { game.unmount(); game = undefined; }
+  if (studio) { studio.unmount(); studio = undefined; }
+  closeModal();
+  transport.stop();
+  loadedSong = undefined;
+  previewSong = undefined;
+  repo.disableCloud();
+  repo.close();
+  songs = []; charts = []; results = []; drafts = [];
+  page = 'auth';
+  authView.mount(mode);
+}
+
+async function signOut() {
+  if (page === 'studio' && !(await leaveStudio())) return;
+  if (game) { game.unmount(); game = undefined; }
+  closeModal();
+  transport.stop();
+  try {
+    await auth.signOut();
+  } catch (e) {
+    toast(storageMessage(e), true);
+  }
+  showAuth('login');
+  toast('Signed out of your BeatOrbit account.');
+}
+
+async function openWorkspace(user: AuthUser & { localOnly?: boolean }) {
   boot?.cancel(); repo.close();
+  if (user.localOnly) repo.disableCloud();
+  else repo.enableCloud(user.id);
   const session = boot = new BootSession();
   session.signal.addEventListener('abort', () => repo.close(), { once: true });
   const stage = <T>(name: string, work: () => Promise<T>) => {
     const status = app.querySelector('#boot-status'); if (status) status.textContent = name + '…';
     return session.stage(name, work);
   };
-  app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Opening your local workspace…</p></div>';
+  app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Connecting to your Supabase cloud workspace…</p></div>';
   try{
-    await stage('Opening local storage', () => repo.open());
+    await stage('Opening cloud storage', () => repo.open());
     if((await stage('Reading demo settings', () => repo.setting('demo-seeded')))!==2){
       app.querySelector('#boot-status')!.textContent='Creating your original demo tracks…';
       await new Promise(resolve=>setTimeout(resolve,30));
@@ -452,8 +496,18 @@ async function init() {
   }catch(e){
     if(boot !== session)return;
     repo.close();
-    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your local workspace could not open.</h1><p>${esc(session.currentStage)}: ${esc(storageMessage(e))}</p><p class="small-muted">Enable browser storage for this site, close older BeatOrbit tabs, and reload. Existing data has not been reset.</p><button class="button primary" id="reload-app">Retry workspace</button></div>`;
+    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your cloud workspace could not open.</h1><p>${esc(session.currentStage)}: ${esc(storageMessage(e))}</p><p class="small-muted">Ensure supabase/schema.sql has been executed in your Supabase SQL Editor and browser storage is enabled.</p><div class="boot-actions"><button class="button primary" id="reload-app">Retry workspace</button><button class="button ghost" id="boot-signout">Sign out</button></div></div>`;
     app.querySelector('#reload-app')!.addEventListener('click',()=>void init());
+    app.querySelector('#boot-signout')!.addEventListener('click',()=>void signOut());
   }finally{session.finish();}
+}
+
+async function init() {
+  const user = await auth.init();
+  if (!user) {
+    showAuth('login');
+    return;
+  }
+  await openWorkspace(user);
 }
 void init();

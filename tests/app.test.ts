@@ -2,16 +2,40 @@
 import { expect, it, vi } from 'vitest';
 import { File } from 'node:buffer';
 import { makeDemoAudio } from '../src/audio';
+import { auth } from '../src/auth';
 import { Repository } from '../src/storage';
 import { chart, song } from './fixtures';
 import { DOMAudioContext, change, click, domSetup, pointer } from './dom-helpers';
 
-it('runs Import → Studio → Save → Play → Results → Reopen through DOM controls',async()=>{
+it('requires Login/Sign Up first, then runs Import → Studio → Save → Play → Results → Reopen → Sign Out',async()=>{
   const ui=domSetup(),repo=new Repository();await repo.open();
   await repo.seed([song],[makeDemoAudio(120,10)],[{...chart(),revision:1}]);
   let clock=100;
   vi.spyOn(performance,'now').mockImplementation(()=>clock);
+  vi.spyOn(auth,'init').mockResolvedValue(null);
+  vi.spyOn(auth,'signIn').mockImplementation(async(email: string)=>{
+    const testUser={id:'user-test-1',email,displayName:'Orbit Tester',localOnly:true} as never;
+    auth.setTestUser(testUser);
+    return testUser;
+  });
+  vi.spyOn(auth,'signOut').mockImplementation(async()=>{
+    auth.setTestUser(null);
+  });
+
   await import('../src/main');
+  // 1. Verify mandatory authentication screen is shown before accessing workspace
+  await vi.waitFor(()=>expect(document.querySelector('.auth-header h1')?.textContent).toContain('Sign in to BeatOrbit'));
+  // Switch to Sign Up page and back to Sign In page
+  click('[data-auth-switch="signup"]');
+  expect(document.querySelector('.auth-header h1')?.textContent).toContain('Create your account');
+  click('[data-auth-switch="login"]');
+  expect(document.querySelector('.auth-header h1')?.textContent).toContain('Sign in to BeatOrbit');
+
+  // Sign in via dedicated Login form
+  change('#auth-email','tester@beatorbit.app');
+  change('#auth-password','secret123');
+  document.querySelector<HTMLFormElement>('#auth-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+
   await vi.waitFor(()=>expect(document.querySelector('.page-title h1')?.textContent).toContain('Music Library'));
   const input=document.querySelector<HTMLInputElement>('#audio-file')!;
   Object.defineProperty(input,'files',{configurable:true,value:[new File(['broken'],'broken.mp3')]});
@@ -60,5 +84,8 @@ it('runs Import → Studio → Save → Play → Results → Reopen through DOM 
   click('[data-choice="draft"]');
   await vi.waitFor(()=>expect(document.querySelector('.recovery-banner')).not.toBeNull());
   expect((await repo.drafts())[0].chart.name).toBe('Continue this tomorrow');
+  // Sign out returns to dedicated Login page
+  click('[data-action="signout"]');
+  await vi.waitFor(()=>expect(document.querySelector('.auth-header h1')?.textContent).toContain('Sign in to BeatOrbit'));
   repo.close();vi.restoreAllMocks();vi.unstubAllGlobals();
 },15000);

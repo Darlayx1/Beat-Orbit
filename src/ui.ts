@@ -24,7 +24,12 @@ export const icons: Record<string, string> = {
   select: '<path d="m5 3 14 10-7 1-3 7z"/>',
   hand: '<path d="M8 13V6a2 2 0 0 1 4 0v6-8a2 2 0 0 1 4 0v9-6a2 2 0 0 1 4 0v10c0 5-3 6-7 6-3 0-5-2-7-5l-3-4c-1-2 1-4 3-2l2 2"/>',
   volume: '<path d="M11 4 5 9H2v6h3l6 5zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
-  trophy: '<path d="M7 3h10v5c0 5-10 5-10 0V3zm0 2H3v3c0 4 5 4 5 4m9-7h4v3c0 4-5 4-5 4M12 12v6m-5 3h10m-8-3h6"/>'
+  trophy: '<path d="M7 3h10v5c0 5-10 5-10 0V3zm0 2H3v3c0 4 5 4 5 4m9-7h4v3c0 4-5 4-5 4M12 12v6m-5 3h10m-8-3h6"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.8 5-6 8-6s6.2 2.2 8 6"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"/>',
+  cloud: '<path d="M17.5 19H7a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.3 9.5a3.5 3.5 0 0 1 .2 9.5z"/>'
 };
 export const icon = (name: string) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.info) + '</svg>';
 let toastTimer: ReturnType<typeof setTimeout>;

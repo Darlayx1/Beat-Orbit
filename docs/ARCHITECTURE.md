@@ -6,7 +6,7 @@ Workspace awal kosong dan tidak memiliki repositori Git atau implementasi terdah
 
 ## Stack
 
-TypeScript dan Vite untuk aplikasi statis; Canvas 2D untuk timeline/gameplay; Web Audio untuk decode dan clock; IndexedDB untuk persistensi. Tidak diperlukan akun, backend, database cloud, atau upload audio.
+TypeScript dan Vite untuk aplikasi klien; Canvas 2D untuk timeline/gameplay; Web Audio untuk decode dan clock; **Supabase Auth** untuk autentikasi wajib (halaman Login & Sign Up); **Supabase PostgreSQL (dengan Strict RLS & fungsi RPC atomik)** untuk penyimpanan metadata lagu, chart, draft, riwayat skor, dan pengaturan per akun; serta **Supabase Storage (`user-audio`)** dengan cache binary lokal **IndexedDB (`beatorbit-local-v1`)** untuk pemutaran audio cepat tanpa unduh berulang. Lagu demo disintesis secara deterministik di klien tanpa membebani kuota upload Storage.
 
 ## Sumber data
 
