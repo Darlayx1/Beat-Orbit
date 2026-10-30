@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { clone, parseChart, type Chart, type Draft, type Result, type Song } from './domain';
 import { AUDIO_BUCKET, getSupabaseClient } from './supabase';
+import { normalizeAudioMimeType } from './audio';
 
 export class SchemaNotInitializedError extends Error {
   constructor(detail?: string) {
@@ -336,6 +337,27 @@ export class SupabaseCloudDriver implements CloudDriver {
     await this.setSetting(userId, 'demo-seeded', 2);
   }
 
+  private async uploadAudio(path: string, audioData: ArrayBuffer, mimeType: string, fileName?: string): Promise<void> {
+    const normalized = normalizeAudioMimeType(mimeType, fileName);
+    let blob = new Blob([audioData], { type: normalized });
+    let uploadRes = await this.client.storage.from(AUDIO_BUCKET).upload(path, blob, {
+      contentType: normalized,
+      upsert: true
+    });
+
+    if (uploadRes.error && normalized !== 'audio/mpeg' && /mime|type|not supported/i.test(uploadRes.error.message)) {
+      blob = new Blob([audioData], { type: 'audio/mpeg' });
+      uploadRes = await this.client.storage.from(AUDIO_BUCKET).upload(path, blob, {
+        contentType: 'audio/mpeg',
+        upsert: true
+      });
+    }
+
+    if (uploadRes.error) {
+      throw new Error(`Audio upload failed: ${uploadRes.error.message}`);
+    }
+  }
+
   async addSong(
     userId: string,
     song: Song,
@@ -344,14 +366,7 @@ export class SupabaseCloudDriver implements CloudDriver {
   ): Promise<void> {
     const path = `${userId}/${song.id}`;
     if (song.source === 'imported') {
-      const blob = new Blob([audioData], { type: mimeType || 'audio/mpeg' });
-      const uploadRes = await this.client.storage.from(AUDIO_BUCKET).upload(path, blob, {
-        contentType: mimeType || 'audio/mpeg',
-        upsert: true
-      });
-      if (uploadRes.error) {
-        throw new Error(`Audio upload failed: ${uploadRes.error.message}`);
-      }
+      await this.uploadAudio(path, audioData, mimeType, song.fileName);
     }
 
     const { error } = await this.client.from('songs').insert(songToRow(userId, song));
@@ -377,14 +392,7 @@ export class SupabaseCloudDriver implements CloudDriver {
     mimeType: string
   ): Promise<void> {
     const path = `${userId}/${song.id}`;
-    const blob = new Blob([audioData], { type: mimeType || 'audio/mpeg' });
-    const uploadRes = await this.client.storage.from(AUDIO_BUCKET).upload(path, blob, {
-      contentType: mimeType || 'audio/mpeg',
-      upsert: true
-    });
-    if (uploadRes.error) {
-      throw new Error(`Audio relink upload failed: ${uploadRes.error.message}`);
-    }
+    await this.uploadAudio(path, audioData, mimeType, song.fileName);
 
     const { error } = await this.client
       .from('songs')

@@ -34,6 +34,93 @@ export function saveAudioSettings(settings: AudioSettings) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* preferences are optional */ }
 }
 
+export const AUDIO_ACCEPT = 'audio/*,.mp3,.wav,.wave,.flac,.ogg,.oga,.opus,.m4a,.aac,.alac,.webm,.weba,.mp4,.m4v,.mov,.aiff,.aif,.aifc,.caf,.mka,.mkv,.3gp,.wma,.amr';
+
+const EXTENSION_TO_AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  wave: 'audio/wav',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  ogv: 'audio/ogg',
+  opus: 'audio/ogg',
+  m4a: 'audio/mp4',
+  mp4: 'audio/mp4',
+  m4v: 'audio/mp4',
+  aac: 'audio/aac',
+  alac: 'audio/mp4',
+  webm: 'audio/webm',
+  weba: 'audio/webm',
+  mov: 'audio/mp4',
+  aiff: 'audio/aiff',
+  aif: 'audio/aiff',
+  aifc: 'audio/aiff',
+  caf: 'audio/x-caf',
+  mka: 'audio/x-matroska',
+  mkv: 'audio/x-matroska',
+  '3gp': 'audio/3gpp',
+  '3g2': 'audio/3gpp2',
+  wma: 'audio/x-ms-wma',
+  amr: 'audio/amr'
+};
+
+const NON_AUDIO_MIME_MAP: Record<string, string> = {
+  'video/webm': 'audio/webm',
+  'video/mp4': 'audio/mp4',
+  'video/ogg': 'audio/ogg',
+  'application/ogg': 'audio/ogg',
+  'video/quicktime': 'audio/mp4',
+  'video/x-matroska': 'audio/x-matroska',
+  'video/3gpp': 'audio/3gpp',
+  'video/3gpp2': 'audio/3gpp2',
+  'video/x-ms-asf': 'audio/x-ms-wma',
+  'video/x-m4v': 'audio/mp4'
+};
+
+export function normalizeAudioMimeType(mimeType?: string, fileName?: string): string {
+  const rawType = (mimeType || '').split(';')[0].trim().toLowerCase();
+  const ext = (fileName || '').split('.').at(-1)?.trim().toLowerCase() || '';
+
+  if (NON_AUDIO_MIME_MAP[rawType]) {
+    return NON_AUDIO_MIME_MAP[rawType];
+  }
+
+  if (rawType.startsWith('audio/')) {
+    if (rawType === 'audio/x-wav' || rawType === 'audio/wave' || rawType === 'audio/vnd.wave') return 'audio/wav';
+    if (rawType === 'audio/x-mp3' || rawType === 'audio/mp3') return 'audio/mpeg';
+    if (rawType === 'audio/x-m4a' || rawType === 'audio/m4a') return 'audio/mp4';
+    if (rawType === 'audio/x-flac') return 'audio/flac';
+    if (rawType === 'audio/x-aiff') return 'audio/aiff';
+    return rawType;
+  }
+
+  if (ext && EXTENSION_TO_AUDIO_MIME[ext]) {
+    return EXTENSION_TO_AUDIO_MIME[ext];
+  }
+
+  return 'audio/mpeg';
+}
+
+export function detectAudioFormat(fileName: string, mimeType?: string): string {
+  const ext = (fileName || '').split('.').at(-1)?.trim().toLowerCase() || '';
+  const aliasMap: Record<string, string> = {
+    wave: 'wav',
+    weba: 'webm',
+    oga: 'ogg',
+    ogv: 'ogg',
+    aif: 'aiff',
+    aifc: 'aiff',
+    m4v: 'mp4'
+  };
+  if (ext && ext !== fileName.toLowerCase()) {
+    return aliasMap[ext] || ext;
+  }
+  const normalizedMime = normalizeAudioMimeType(mimeType, fileName);
+  const sub = normalizedMime.replace(/^audio\/(x-)?/, '');
+  return sub === 'mpeg' ? 'mp3' : sub;
+}
+
 export class AudioTransport {
   private context?: AudioContext;
   private source?: AudioBufferSourceNode;
@@ -115,7 +202,9 @@ export class AudioTransport {
   }
   private inspectDuration(blob: Blob): Promise<number | undefined> {
     return new Promise(resolve => {
-      const audio = new Audio(), url = URL.createObjectURL(blob);
+      const normalizedType = normalizeAudioMimeType(blob.type, (blob as { name?: string }).name);
+      const safeBlob = blob.type !== normalizedType ? new Blob([blob], { type: normalizedType }) : blob;
+      const audio = new Audio(), url = URL.createObjectURL(safeBlob);
       const finish = (duration?: number) => { clearTimeout(timer); audio.onloadedmetadata = null; audio.onerror = null; audio.removeAttribute('src'); audio.load(); URL.revokeObjectURL(url); resolve(duration); };
       const timer = setTimeout(() => finish(), 8000);
       audio.preload = 'metadata';

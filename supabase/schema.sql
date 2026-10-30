@@ -287,12 +287,12 @@ values (
   'user-audio',
   false,
   67108864,
-  array['audio/*']
+  array['audio/*', 'video/webm', 'video/mp4', 'video/ogg', 'video/quicktime', 'video/x-matroska', 'video/3gpp', 'application/ogg', 'application/octet-stream']
 )
 on conflict (id) do update set
   public = false,
   file_size_limit = 67108864,
-  allowed_mime_types = array['audio/*'];
+  allowed_mime_types = array['audio/*', 'video/webm', 'video/mp4', 'video/ogg', 'video/quicktime', 'video/x-matroska', 'video/3gpp', 'application/ogg', 'application/octet-stream'];
 
 drop policy if exists "user_audio_select" on storage.objects;
 create policy "user_audio_select" on storage.objects

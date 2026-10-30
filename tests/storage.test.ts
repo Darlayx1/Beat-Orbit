@@ -340,4 +340,42 @@ describe('Supabase hybrid cloud storage & multi-user isolation', () => {
     ).rejects.toBeInstanceOf(SchemaNotInitializedError);
     expect(removedPaths).toEqual(['u1/s1']);
   });
+
+  it('normalizes video/webm to audio/webm and retries with audio/mpeg if bucket rejects MIME type', async () => {
+    const uploadedContentTypes: string[] = [];
+    const mockClient = {
+      storage: {
+        from: () => ({
+          upload: vi.fn().mockImplementation(async (_path: string, _blob: Blob, options: { contentType: string }) => {
+            uploadedContentTypes.push(options.contentType);
+            if (options.contentType === 'audio/webm') {
+              return { data: null, error: { message: 'mime type video/webm is not supported' } };
+            }
+            return { data: { path: 'u1/s-webm' }, error: null };
+          })
+        })
+      },
+      from: () => ({
+        insert: vi.fn().mockResolvedValue({ error: null })
+      })
+    };
+    const driver = new SupabaseCloudDriver(() => mockClient as never);
+    await driver.addSong(
+      'u1',
+      { ...song, id: 's-webm', fileName: 'one_direction.webm', source: 'imported' },
+      new ArrayBuffer(16),
+      'video/webm'
+    );
+    // Verified: First attempted audio/webm, then gracefully fell back to audio/mpeg upon MIME error
+    expect(uploadedContentTypes).toEqual(['audio/webm', 'audio/mpeg']);
+  });
+
+  it('normalizes container MIME types in Repository.prepareAudio', async () => {
+    const webmBlob = new Blob(['webm-data'], { type: 'video/webm' });
+    Object.defineProperty(webmBlob, 'name', { value: 'track.webm' });
+    await repo.addSong({ ...song, id: 'webm-test', fileName: 'track.webm' }, webmBlob);
+    const audio = await repo.audio('webm-test');
+    expect(audio).toBeDefined();
+    expect(audio!.type).toBe('audio/webm');
+  });
 });

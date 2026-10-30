@@ -6,7 +6,7 @@ import '@fontsource/barlow-condensed/latin-700.css';
 import '@fontsource/barlow-condensed/latin-800.css';
 import './style.css';
 import { GLYPHS, LIMITS, SYMBOLS, clone, formatTime, newChart, parseChart, uid, validatePlayable, type Chart, type Draft, type Result, type Song } from './domain';
-import { AudioTransport, DEFAULT_AUDIO_SETTINGS, HIT_PRESETS, makeDemoAudioAsync, type AudioSettings } from './audio';
+import { AUDIO_ACCEPT, AudioTransport, DEFAULT_AUDIO_SETTINGS, HIT_PRESETS, detectAudioFormat, makeDemoAudioAsync, type AudioSettings } from './audio';
 import { DEMO_SPECS, buildDemoChart } from './demos';
 import { auth, type AuthUser } from './auth';
 import { AuthView, type AuthMode } from './auth-view';
@@ -100,7 +100,7 @@ function shell(active: string, content: string, immersive = false) {
       <button class="nav-item" data-action="activity">${icon('clock')}<span>Recent Sessions</span></button>
     </nav><div class="sidebar-separator"></div><div class="workspace-label">GET IN THE FLOW</div><button class="nav-item" data-action="guide">${icon('info')}<span>How to play</span></button><button class="nav-item" data-action="import-json">${icon('download')}<span>Import chart</span></button>
     <div class="sidebar-bottom"><div class="local-card">${icon('cloud')}<div><strong>${esc(userName)}</strong><p>${esc(userEmail)}</p></div><span class="live-dot"></span></div><div class="sidebar-foot"><span>SUPABASE CLOUD</span><div class="sidebar-foot-actions"><button class="icon-button" data-action="settings" title="Settings" aria-label="Settings">⚙</button><button class="icon-button" data-action="signout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div></div></aside>
-    <div class="app-main"><header class="app-header">${active==='studio'?'<button class="mobile-brand studio-mobile-library" data-action="library" aria-label="Back to Music Library"><span>Music Library</span></button>':`<div class="mobile-brand">${logo()}</div>`}<span class="header-label">YOUR MUSIC. YOUR ORBIT.</span><div class="header-right"><span class="local-status"><span class="live-dot"></span> CLOUD SYNC · ${esc(userName.toUpperCase())}</span><button class="avatar" data-action="settings" aria-label="Workspace settings">${esc(userInitial)}</button><button class="icon-button" data-action="signout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></header><main id="main-content">${content}</main><footer class="app-footer"><span>Made for the music you love.</span><span>△ &nbsp; ○ &nbsp; □ &nbsp; × <i>Find your rhythm.</i></span></footer></div></div><input type="file" id="audio-file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden><input type="file" id="chart-file" accept=".json,application/json" hidden>`;
+    <div class="app-main"><header class="app-header">${active==='studio'?'<button class="mobile-brand studio-mobile-library" data-action="library" aria-label="Back to Music Library"><span>Music Library</span></button>':`<div class="mobile-brand">${logo()}</div>`}<span class="header-label">YOUR MUSIC. YOUR ORBIT.</span><div class="header-right"><span class="local-status"><span class="live-dot"></span> CLOUD SYNC · ${esc(userName.toUpperCase())}</span><button class="avatar" data-action="settings" aria-label="Workspace settings">${esc(userInitial)}</button><button class="icon-button" data-action="signout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></header><main id="main-content">${content}</main><footer class="app-footer"><span>Made for the music you love.</span><span>△ &nbsp; ○ &nbsp; □ &nbsp; × <i>Find your rhythm.</i></span></footer></div></div><input type="file" id="audio-file" accept="${AUDIO_ACCEPT}" hidden><input type="file" id="chart-file" accept=".json,application/json" hidden>`;
   app.querySelector<HTMLInputElement>('#audio-file')!.addEventListener('change',e=>{const input=e.target as HTMLInputElement;const file=input.files?.[0];input.value='';if(file)void importAudio(file);});
   app.querySelector<HTMLInputElement>('#chart-file')!.addEventListener('change',e=>{const input=e.target as HTMLInputElement;const file=input.files?.[0];input.value='';if(file)void importJSON(file).catch(e=>toast(storageMessage(e),true));});
 }
@@ -265,7 +265,7 @@ async function importAudio(file: File, relinkSong?: Song) {
       const bpm=bpmValue?Number(bpmValue):undefined;
       if(!title||title.length>200||bpm!==undefined&&(!Number.isFinite(bpm)||bpm<1||bpm>1000)){toast('Enter a title and a valid optional BPM (1–1000).',true);return;}
       modalBusy(root,true);button.textContent='Saving…';
-      const song: Song={id:relinkSong?.id||uid(),title,artist:root.querySelector<HTMLInputElement>('#import-artist')!.value.trim()||'Unknown artist',durationMs:duration,fileName:file.name,format:file.name.split('.').at(-1)?.toLowerCase()||'audio',fileSize:file.size,importedAt:relinkSong?.importedAt||new Date().toISOString(),source:'imported',bpm,palette:relinkSong?.palette??songs.length};
+      const song: Song={id:relinkSong?.id||uid(),title,artist:root.querySelector<HTMLInputElement>('#import-artist')!.value.trim()||'Unknown artist',durationMs:duration,fileName:file.name,format:detectAudioFormat(file.name,file.type),fileSize:file.size,importedAt:relinkSong?.importedAt||new Date().toISOString(),source:'imported',bpm,palette:relinkSong?.palette??songs.length};
       try{
         if(relinkSong)await repo.relinkSong(song,file);else await repo.addSong(song,file);
         if(operation!==importOperation)return;
@@ -307,7 +307,7 @@ function manageSong(song: Song) {
   });
   root.querySelector('#new-chart')!.addEventListener('click',()=>{closeModal();void openStudio(song).catch(e=>toast(storageMessage(e),true));});
   root.querySelector('#relink-audio')!.addEventListener('click',()=>{
-    const input=document.createElement('input');input.type='file';input.accept='audio/*,.mp3,.m4a,.wav,.aac,.ogg';input.addEventListener('change',()=>{if(input.files?.[0])void importAudio(input.files[0],song);});input.click();
+    const input=document.createElement('input');input.type='file';input.accept=AUDIO_ACCEPT;input.addEventListener('change',()=>{if(input.files?.[0])void importAudio(input.files[0],song);});input.click();
   });
   root.querySelector('#delete-song')!.addEventListener('click',async()=>{
     const answer=await choose('Delete this song?', song.title+' and its '+related.length+' chart(s), drafts, and results will be removed from this browser. Export charts first if you need a backup.',[{id:'cancel',label:'Keep song'},{id:'delete',label:'Delete song',kind:'danger'}]);

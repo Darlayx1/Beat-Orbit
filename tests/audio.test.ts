@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AudioTransport, DEFAULT_AUDIO_SETTINGS, loadAudioSettings, makeDemoAudio, sanitizeAudioSettings, waveform } from '../src/audio';
+import {
+  AUDIO_ACCEPT,
+  AudioTransport,
+  DEFAULT_AUDIO_SETTINGS,
+  detectAudioFormat,
+  loadAudioSettings,
+  makeDemoAudio,
+  normalizeAudioMimeType,
+  sanitizeAudioSettings,
+  waveform
+} from '../src/audio';
 
 class Source {
   buffer:unknown;onended:(()=>void)|null=null;active=false;startedAt=0;offset=0;
@@ -102,5 +112,63 @@ describe('audio clock and source lifecycle',()=>{
   it('creates playable PCM WAV demo headers without remote assets',async()=>{
     const blob=makeDemoAudio(120,1),bytes=new DataView(await blob.arrayBuffer());
     expect(blob.type).toBe('audio/wav');expect(bytes.getUint32(24,true)).toBe(16000);expect(bytes.getUint16(22,true)).toBe(1);expect(bytes.getUint32(40,true)).toBe(32000);
+  });
+});
+
+describe('audio format detection and MIME normalization', () => {
+  it('normalizes video and container MIME types to valid audio MIME types', () => {
+    expect(normalizeAudioMimeType('video/webm', 'song.webm')).toBe('audio/webm');
+    expect(normalizeAudioMimeType('video/webm; codecs=opus', 'song.webm')).toBe('audio/webm');
+    expect(normalizeAudioMimeType('video/mp4', 'track.mp4')).toBe('audio/mp4');
+    expect(normalizeAudioMimeType('video/ogg', 'music.ogg')).toBe('audio/ogg');
+    expect(normalizeAudioMimeType('application/ogg', 'sound.opus')).toBe('audio/ogg');
+    expect(normalizeAudioMimeType('video/quicktime', 'audio.mov')).toBe('audio/mp4');
+    expect(normalizeAudioMimeType('video/x-matroska', 'audio.mka')).toBe('audio/x-matroska');
+    expect(normalizeAudioMimeType('video/3gpp', 'clip.3gp')).toBe('audio/3gpp');
+  });
+
+  it('normalizes audio MIME types and strips parameters', () => {
+    expect(normalizeAudioMimeType('audio/webm; codecs=opus')).toBe('audio/webm');
+    expect(normalizeAudioMimeType('audio/x-wav')).toBe('audio/wav');
+    expect(normalizeAudioMimeType('audio/x-mp3')).toBe('audio/mpeg');
+    expect(normalizeAudioMimeType('audio/x-m4a')).toBe('audio/mp4');
+    expect(normalizeAudioMimeType('audio/x-flac')).toBe('audio/flac');
+    expect(normalizeAudioMimeType('audio/flac')).toBe('audio/flac');
+    expect(normalizeAudioMimeType('audio/aac')).toBe('audio/aac');
+  });
+
+  it('falls back to file extensions when MIME type is missing or generic', () => {
+    expect(normalizeAudioMimeType('', 'song.flac')).toBe('audio/flac');
+    expect(normalizeAudioMimeType('application/octet-stream', 'song.opus')).toBe('audio/ogg');
+    expect(normalizeAudioMimeType(undefined, 'beat.wav')).toBe('audio/wav');
+    expect(normalizeAudioMimeType(undefined, 'track.mp3')).toBe('audio/mpeg');
+    expect(normalizeAudioMimeType(undefined, 'tune.m4a')).toBe('audio/mp4');
+    expect(normalizeAudioMimeType(undefined, 'file.unknown')).toBe('audio/mpeg');
+  });
+
+  it('detects clean format labels and normalizes aliases', () => {
+    expect(detectAudioFormat('song.webm', 'video/webm')).toBe('webm');
+    expect(detectAudioFormat('track.weba')).toBe('webm');
+    expect(detectAudioFormat('recording.wave')).toBe('wav');
+    expect(detectAudioFormat('audio.oga')).toBe('ogg');
+    expect(detectAudioFormat('music.opus')).toBe('opus');
+    expect(detectAudioFormat('sound.flac')).toBe('flac');
+    expect(detectAudioFormat('beat.mp3')).toBe('mp3');
+    expect(detectAudioFormat('clip.m4a')).toBe('m4a');
+    expect(detectAudioFormat('video_song.mp4')).toBe('mp4');
+    expect(detectAudioFormat('unnamed_file', 'video/webm')).toBe('webm');
+  });
+
+  it('provides a comprehensive AUDIO_ACCEPT string for file pickers', () => {
+    expect(AUDIO_ACCEPT).toContain('audio/*');
+    expect(AUDIO_ACCEPT).toContain('.webm');
+    expect(AUDIO_ACCEPT).toContain('.mp4');
+    expect(AUDIO_ACCEPT).toContain('.flac');
+    expect(AUDIO_ACCEPT).toContain('.ogg');
+    expect(AUDIO_ACCEPT).toContain('.opus');
+    expect(AUDIO_ACCEPT).toContain('.wav');
+    expect(AUDIO_ACCEPT).toContain('.mp3');
+    expect(AUDIO_ACCEPT).toContain('.m4a');
+    expect(AUDIO_ACCEPT).toContain('.aac');
   });
 });

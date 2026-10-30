@@ -1,4 +1,4 @@
-import { makeDemoAudio } from './audio';
+import { makeDemoAudio, normalizeAudioMimeType } from './audio';
 import { DEMO_SPECS } from './demos';
 import { clone, parseChart, type Chart, type Draft, type Result, type Song } from './domain';
 import { SchemaNotInitializedError, SupabaseCloudDriver, type CloudDriver } from './cloud-driver';
@@ -275,7 +275,8 @@ export class Repository {
         })
       ]);
       if (generation !== this.generation) throw new Error('Storage attempt superseded.');
-      return { data, type: blob.type };
+      const type = normalizeAudioMimeType(blob.type, (blob as { name?: string }).name);
+      return { data, type };
     } finally {
       clearTimeout(timer);
     }
