@@ -473,9 +473,9 @@ async function openWorkspace(user: AuthUser & { localOnly?: boolean }) {
     const status = app.querySelector('#boot-status'); if (status) status.textContent = name + '…';
     return session.stage(name, work);
   };
-  app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Connecting to your Supabase cloud workspace…</p></div>';
+  app.innerHTML='<div class="boot-screen"><div class="boot-logo">'+logo()+'</div><span class="spinner"></span><p id="boot-status">Opening your workspace…</p></div>';
   try{
-    await stage('Opening cloud storage', () => repo.open());
+    await stage('Opening local storage', () => repo.open());
     if((await stage('Reading demo settings', () => repo.setting('demo-seeded')))!==2){
       app.querySelector('#boot-status')!.textContent='Creating your original demo tracks…';
       await new Promise(resolve=>setTimeout(resolve,30));
@@ -496,7 +496,7 @@ async function openWorkspace(user: AuthUser & { localOnly?: boolean }) {
   }catch(e){
     if(boot !== session)return;
     repo.close();
-    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your cloud workspace could not open.</h1><p>${esc(session.currentStage)}: ${esc(storageMessage(e))}</p><p class="small-muted">Ensure supabase/schema.sql has been executed in your Supabase SQL Editor and browser storage is enabled.</p><div class="boot-actions"><button class="button primary" id="reload-app">Retry workspace</button><button class="button ghost" id="boot-signout">Sign out</button></div></div>`;
+    app.innerHTML=`<div class="boot-screen"><div class="boot-logo">${logo()}</div><h1>Your workspace could not open.</h1><p>${esc(session.currentStage)}: ${esc(storageMessage(e))}</p><p class="small-muted">Enable browser storage for this site, close older BeatOrbit tabs, and reload. Existing data has not been reset.</p><div class="boot-actions"><button class="button primary" id="reload-app">Retry workspace</button><button class="button ghost" id="boot-signout">Sign out</button></div></div>`;
     app.querySelector('#reload-app')!.addEventListener('click',()=>void init());
     app.querySelector('#boot-signout')!.addEventListener('click',()=>void signOut());
   }finally{session.finish();}
