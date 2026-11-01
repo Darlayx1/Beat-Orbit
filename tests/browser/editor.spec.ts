@@ -85,10 +85,12 @@ test('one-lane editor: wheel, Dual conversion, persistence and reachable transpo
     await expect.poll(async()=>{
       const box=await page.locator('.timeline-transport').boundingBox();return !!box&&box.y>=0&&box.y+box.height<=viewport.height+1;
     }).toBe(true);
-    const box=(await canvas.boundingBox())!;
-    const center=box.y+(viewport.height<540?48:96)+(box.height-(viewport.height<540?48:96)-16)/2;
-    const transport=(await page.locator('.timeline-transport').boundingBox())!;
-    expect(center).toBeLessThan(transport.y);
+    await expect.poll(async()=>{
+      const box=(await canvas.boundingBox())!;
+      const center=box.y+(viewport.height<540?48:96)+(box.height-(viewport.height<540?48:96)-16)/2;
+      const transport=(await page.locator('.timeline-transport').boundingBox())!;
+      return center<transport.y;
+    }).toBe(true);
     for(const symbol of await page.locator('[data-symbol]').all()){
       const button=(await symbol.boundingBox())!;expect(button.x).toBeGreaterThanOrEqual(0);expect(button.x+button.width).toBeLessThanOrEqual(viewport.width);
     }
