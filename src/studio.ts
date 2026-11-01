@@ -21,6 +21,7 @@ export class Studio {
   private stageDrag?: { pointer: number; ids: string[]; target: {x:number;y:number} };
   private observer?: ResizeObserver;
   private raf = 0;
+  private resizeRaf = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private writes: Promise<unknown> = Promise.resolve();
   private epoch = 0;
@@ -103,7 +104,10 @@ export class Studio {
     this.canvas = root.querySelector('#timeline')!; this.viewport = root.querySelector('#timeline-scroll')!;
     root.querySelector('.timeline-help span')!.textContent = 'Choose a symbol and type · One timeline · Drag horizontally to move';
     this.viewport.scrollLeft = this.scroll;
-    this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(this.viewport);
+    this.observer = new ResizeObserver(() => {
+      if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf);
+      this.resizeRaf = requestAnimationFrame(() => { this.resizeRaf = 0; this.resize(); });
+    }); this.observer.observe(this.viewport);
     this.resize(); this.update();
     root.addEventListener('click', this.click);
     root.addEventListener('change', this.change);
@@ -120,7 +124,7 @@ export class Studio {
   }
   unmount() {
     this.root?.removeEventListener('pointerdown',this.directionDown);this.root?.removeEventListener('pointermove',this.directionMove);this.root?.removeEventListener('pointerup',this.directionUp);this.root?.removeEventListener('pointercancel',this.directionCancel);this.root?.removeEventListener('lostpointercapture',this.directionLost);this.directionDrag=undefined;
-    cancelAnimationFrame(this.raf); this.observer?.disconnect();
+    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.resizeRaf); this.resizeRaf = 0; this.observer?.disconnect();
     this.root?.removeEventListener('click', this.click); this.root?.removeEventListener('change', this.change);
     this.root?.removeEventListener('input', this.input);
     this.viewport?.removeEventListener('scroll', this.onScroll);
