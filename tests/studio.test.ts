@@ -4,6 +4,7 @@ import { AudioTransport } from '../src/audio';
 import { Repository } from '../src/storage';
 import { Studio } from '../src/studio';
 import { clone } from '../src/domain';
+import { targetPoint } from '../src/stage';
 import { chart, song, tap } from './fixtures';
 import { buffer, change, click, domSetup, pointer } from './dom-helpers';
 let repo:Repository,audio:AudioTransport,studio:Studio|undefined;
@@ -15,6 +16,87 @@ async function mount(notes= [] as ReturnType<typeof tap>[]){
   return{c,playtest,canvas:document.querySelector('canvas')!};
 }
 describe('Studio DOM interactions',()=>{
+  it('previews wheel rotation without mutating notes and commits a whole pair in one undo step',async()=>{
+    const {canvas}=await mount([tap(1000,{side:'left',chordId:'wheel',entryAngleDeg:0}),tap(1000,{symbol:'circle',side:'right',chordId:'wheel',entryAngleDeg:0})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    const wheel=document.querySelector('#direction-wheel')!;
+    pointer(wheel,'pointerdown',700,175);pointer(wheel,'pointermove',400,330);
+    expect(studio!.chart.notes.map(n=>n.entryAngleDeg)).toEqual([0,0]);
+    expect(document.querySelector('#direction-value')!.textContent).toBe('Bawah · 90°');
+    pointer(wheel,'pointerup',400,330);
+    expect(studio!.chart.notes.map(n=>n.entryAngleDeg)).toEqual([90,90]);
+    click('[data-editor="undo"]');expect(studio!.chart.notes.map(n=>n.entryAngleDeg)).toEqual([0,0]);
+    expect(studio!.doc.canUndo).toBe(false);
+  });
+  it('cancels a wheel gesture on capture loss and Escape without changing selection or history',async()=>{
+    const {canvas}=await mount([tap(1000,{entryAngleDeg:22.5})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    const id=studio!.selected;
+    for(const event of ['pointercancel','lostpointercapture','Escape']){
+      const wheel=document.querySelector('#direction-wheel')!;
+      pointer(wheel,'pointerdown',700,175);pointer(wheel,'pointermove',400,330);
+      if(event==='Escape')window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));else pointer(wheel,event,400,330);
+      expect(studio!.chart.notes[0].entryAngleDeg).toBe(22.5);expect(studio!.selected).toBe(id);expect(studio!.doc.canUndo).toBe(false);
+    }
+  });
+  it('supports free angles, keyboard rotation and save/reopen without rounding a custom angle',async()=>{
+    const {canvas}=await mount([tap(1000,{entryAngleDeg:22.5})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    const checkbox=document.querySelector<HTMLInputElement>('#free-direction')!;checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));
+    expect(studio!.chart.notes[0].entryAngleDeg).toBe(22.5);
+    const wheel=document.querySelector<HTMLElement>('#direction-wheel')!;wheel.focus();wheel.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+    expect(studio!.chart.notes[0].entryAngleDeg).toBe(23.5);expect(document.activeElement?.id).toBe('direction-wheel');
+    change('#note-entry','-337.5');expect(studio!.chart.notes[0].entryAngleDeg).toBe(22.5);
+    await studio!.save();expect((await repo.charts())[0].notes[0].entryAngleDeg).toBe(22.5);
+  });
+  it('moves, duplicates and erases mixed Duals atomically while retaining symbols and targets',async()=>{
+    const {canvas}=await mount([tap(1000,{chordId:'mixed',side:'left',target:{x:.2,y:.3}}),tap(1000,{chordId:'mixed',symbol:'square',side:'right',target:{x:.8,y:.7}})]);
+    const before=clone(studio!.chart.notes);click('[data-tool="select"]');
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointermove',265,200);pointer(canvas,'pointerup',265,200);
+    expect(studio!.chart.notes.every(n=>n.timeMs===2000)).toBe(true);
+    expect(studio!.chart.notes.map(n=>n.symbol).sort()).toEqual(['square','triangle']);
+    expect(studio!.chart.notes.map(n=>n.target)).toEqual(before.map(n=>n.target));
+    click('[data-editor="duplicate"]');
+    const copies=studio!.chart.notes.filter(n=>n.timeMs===2500);expect(copies).toHaveLength(2);expect(copies[0].chordId).toBe(copies[1].chordId);expect(copies[0].chordId).not.toBe('mixed');
+    click('[data-editor="delete"]');expect(studio!.chart.notes).toHaveLength(2);
+    click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(4);
+    click('[data-tool="erase"]');pointer(canvas,'pointerdown',265,126);pointer(canvas,'pointerup',265,126);
+    expect(studio!.chart.notes).toHaveLength(2);expect(studio!.chart.notes.every(n=>n.timeMs===2500)).toBe(true);
+  });
+  it('requires an explicit member choice before a Dual-to-single conversion and supports cancel/undo',async()=>{
+    const {canvas}=await mount([tap(1000,{chordId:'convert',side:'left'}),tap(1000,{chordId:'convert',symbol:'circle',side:'right'})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    click('[data-note-type="hold"]');expect(studio!.chart.notes).toHaveLength(2);
+    click('[data-editor="cancel-conversion"]');expect(studio!.doc.canUndo).toBe(false);
+    click('[data-note-type="hold"]');
+    const keep=studio!.chart.notes.find(n=>n.symbol==='circle')!;click('[data-keep-note="'+keep.id+'"]');
+    expect(studio!.chart.notes).toHaveLength(1);expect(studio!.chart.notes[0]).toMatchObject({symbol:'circle',type:'hold',side:'either',durationMs:500});expect(studio!.chart.notes[0].chordId).toBeUndefined();
+    click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(2);expect(studio!.chart.notes.every(n=>n.chordId==='convert'&&n.type==='tap')).toBe(true);
+  });
+  it('keeps an overlapping Tap and Hold selectable and does not insert with eraser, pan or select',async()=>{
+    const {canvas}=await mount([tap(500,{type:'hold',durationMs:2000}),tap(1000,{symbol:'circle'})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    const picker=document.querySelector<HTMLElement>('#timeline-selection')!;expect(picker.hidden).toBe(false);expect(picker.querySelectorAll('[data-pick-note]')).toHaveLength(2);
+    const circle=studio!.chart.notes.find(n=>n.symbol==='circle')!;click('#timeline-selection [data-pick-note="'+circle.id+'"]');expect(studio!.selected).toBe(circle.id);
+    for(const tool of ['erase','pan','select']){click('[data-tool="'+tool+'"]');window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyN',key:'n',bubbles:true}));}
+    expect(studio!.chart.notes).toHaveLength(2);
+  });
+  it('does not move a selected target when empty stage space is clicked',async()=>{
+    const {canvas}=await mount([tap(1000)]);pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    const before=clone(studio!.chart.notes[0].target),stage=document.querySelector('#stage-preview')!;
+    pointer(stage,'pointerdown',0,0);pointer(stage,'pointerup',0,0);
+    expect(studio!.chart.notes[0].target).toEqual(before);expect(studio!.doc.canUndo).toBe(false);
+  });
+  it('preserves panel and transport settings across a Playtest remount',async()=>{
+    await mount([tap(1000)]);click('[data-editor="snap"]');click('[data-editor="follow"]');click('[data-editor="zoom-in"]');click('[data-editor="inspector"]');click('[data-editor="stage-toggle"]');
+    const zoom=document.querySelector('#zoom-label')!.textContent;
+    studio!.unmount();studio!.mount(document.querySelector('#mount')!);
+    expect(document.querySelector('[data-editor="snap"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-editor="follow"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('#zoom-label')!.textContent).toBe(zoom);
+    expect(document.querySelector('.editor-layout')!.classList.contains('show-inspector')).toBe(true);
+    expect(document.querySelector('.stage-preview')!.hasAttribute('hidden')).toBe(true);
+  });
   it('moves a matching Dual target in one undo step and retains direction through save and reload',async()=>{
     await mount([tap(1000,{side:'left',chordId:'d'}),tap(1000,{side:'right',chordId:'d'})]);
     click('[data-tool="select"]');
@@ -22,7 +104,8 @@ describe('Studio DOM interactions',()=>{
     pointer(timeline,'pointerdown',155,126);pointer(timeline,'pointerup',155,126);
     change('#note-entry','225');change('#note-travel','2200');
     const stage=document.querySelector('#stage-preview')!;
-    pointer(stage,'pointerdown',300,200);pointer(stage,'pointermove',450,240);pointer(stage,'pointerup',450,240);
+    const point=targetPoint(studio!.chart.notes[0],800,350);
+    pointer(stage,'pointerdown',point.x,point.y);pointer(stage,'pointermove',450,240);pointer(stage,'pointerup',450,240);
     expect(studio!.chart.notes[0].target).toEqual(studio!.chart.notes[1].target);
     expect(studio!.chart.notes[0].target.x).not.toBe(.5);
     click('[data-editor="undo"]');expect(studio!.chart.notes[0].target.x).toBe(.5);
@@ -30,13 +113,21 @@ describe('Studio DOM interactions',()=>{
     const saved=(await repo.charts())[0];expect(saved.notes).toEqual(studio!.chart.notes);
     expect(saved.notes.every(n=>n.entryAngleDeg===225&&n.travelTimeMs===2000)).toBe(true);
   });
+  it('sets bottom spawn and converts a selected tap into a two-input Dual',async()=>{
+    const {canvas}=await mount();pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    click('[data-angle="90"]');expect(studio!.chart.notes[0].entryAngleDeg).toBe(90);
+    click('[data-note-type="dual"]');expect(studio!.chart.notes).toHaveLength(2);
+    expect(studio!.chart.notes.map(n=>n.side).sort()).toEqual(['left','right']);
+    expect(studio!.chart.notes[0].chordId).toBe(studio!.chart.notes[1].chordId);
+    click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(1);
+  });
   it('places Tap, Hold, and matching Dual notes through the actual tools',async()=>{
     const {canvas}=await mount();
     pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
     expect(studio!.chart.notes[0].timeMs).toBe(1000);
     click('[data-tool="hold"]');pointer(canvas,'pointerdown',265,185);pointer(canvas,'pointerup',265,185);
     expect(studio!.chart.notes.find(n=>n.type==='hold')!.durationMs).toBe(500);
-    click('[data-tool="dual"]');change('#second-symbol','0');
+    click('[data-tool="dual"]');click('[data-partner="0"]');
     pointer(canvas,'pointerdown',375,126);pointer(canvas,'pointerup',375,126);
     const dual=studio!.chart.notes.filter(n=>n.timeMs===3000);
     expect(dual.map(n=>n.side).sort()).toEqual(['left','right']);
@@ -57,14 +148,15 @@ describe('Studio DOM interactions',()=>{
     expect(studio!.chart.notes[0].durationMs).toBe(1000);
     click('[data-editor="undo"]');expect(studio!.chart.notes[0].durationMs).toBe(500);
     pointer(canvas,'pointerdown',155,185);pointer(canvas,'pointermove',265,245);pointer(canvas,'pointerup',265,245);
-    expect(studio!.chart.notes[0].timeMs).toBe(2000);expect(studio!.chart.notes[0].symbol).toBe('square');
+    expect(studio!.chart.notes[0].timeMs).toBe(2000);expect(studio!.chart.notes[0].symbol).toBe('circle');
     click('[data-editor="undo"]');expect(studio!.chart.notes[0].timeMs).toBe(1000);expect(studio!.chart.notes[0].symbol).toBe('circle');
   });
   it('uses symbol tools to insert at the playhead and edit a selected symbol',async()=>{
     await mount();click('[data-symbol="2"]');
     window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyN',key:'n',bubbles:true}));
     expect(studio!.chart.notes).toHaveLength(1);expect(studio!.chart.notes[0].symbol).toBe('square');
-    click('[data-symbol="1"]');expect(studio!.chart.notes[0].symbol).toBe('circle');
+    click('[data-symbol="1"]');expect(studio!.chart.notes[0].symbol).toBe('square');
+    click('[data-property-symbol="circle"]');expect(studio!.chart.notes[0].symbol).toBe('circle');
     click('[data-editor="undo"]');expect(studio!.chart.notes[0].symbol).toBe('square');
   });
   it('cancels a drag without committing and keeps shortcuts inactive while typing',async()=>{

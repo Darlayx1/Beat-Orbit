@@ -28,15 +28,15 @@ Folder dist berisi build statis. Aplikasi tidak memerlukan backend.
 2. Pilih audio, tunggu validasi decode, dan isi judul/artis.
 3. Simpan lalu pilih **Open Orbit Studio**.
 4. Atur nama chart, difficulty, BPM, meter, dan offset grid.
-5. Pilih Tap, Hold, atau Dual, lalu tekan track simbol pada timeline.
-6. Drag note untuk memindahkannya; drag ujung Hold untuk mengubah durasi.
+5. Pilih simbol △/○/□/× dan tipe Tap, Hold, Dual, atau Dual Hold pada Penempatan baru, lalu tekan waktu pada timeline satu lajur.
+6. Drag horizontal untuk memindahkan waktu; drag ujung Hold untuk mengubah durasi. Simbol diganti lewat properti, bukan gerakan vertikal.
 7. Gunakan Preview atau Playtest. Playtest membaca perubahan yang belum disimpan.
 8. Simpan chart, kembali ke library, lalu tekan Play.
 9. Setelah selesai, results dapat digunakan untuk bermain ulang atau membuka editor.
 
 Pada landscape kecil, tombol **Timing** membuka pengaturan chart agar timeline mendapat ruang lebih luas.
-Panel properti note dibuka melalui tombol informasi pada toolbar.
-Pan menggeser timeline; tombol −/+ mengatur zoom. Pinch zoom belum diimplementasikan.
+Panel properti note dibuka melalui tombol informasi pada toolbar. Arah spawn diatur lewat wheel: handle bawah berarti note muncul dari bawah. Preset, keyboard, sudut bebas, dan input derajat tersedia. Edit pasangan berlaku untuk seluruh Dual secara default; pilih Edit anggota untuk mengatur satu anggota. Konversi Dual ke note tunggal meminta anggota yang dipertahankan.
+Pan menggeser timeline; tombol −/+ mengatur zoom. Badge angka menunjukkan note yang berdekatan/bertumpuk; klik untuk memilih lewat daftar objek. Navigasi note juga tersedia untuk keyboard. Pinch zoom belum diimplementasikan.
 
 ## Kontrol
 

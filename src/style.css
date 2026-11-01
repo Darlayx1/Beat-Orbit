@@ -327,3 +327,121 @@
   .auth-panel{padding:20px 16px}
   .auth-card{padding:24px 20px}
 }
+
+/* Orbit Studio: one timeline, visible placement controls and scoped properties. */
+.studio-shell .editor-layout{grid-template-columns:minmax(0,1fr) 300px;grid-template-areas:"tools inspector" "timeline inspector";gap:12px;align-items:start}
+.studio-shell .tools{grid-area:tools;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;padding:12px;gap:6px;max-height:none}
+.studio-shell .tools>.eyebrow:first-child{width:100%;font-size:11px;letter-spacing:1px;margin:0 0 4px}
+.studio-shell .tool{min-height:44px;min-width:56px;padding:8px;gap:6px;justify-content:center;font-size:12px}
+.studio-shell .tool span{display:inline;font-size:12px}
+.studio-shell .symbol-heading{display:none}
+.studio-shell .symbol-tools,.partner-symbols{display:flex;gap:5px}
+.studio-shell .symbol-tools button,.partner-symbols button{width:44px;height:44px;min-height:44px;border:1px solid #3a4d61;border-radius:8px;background:#152334;font-size:24px;color:#dce7f1}
+.studio-shell .second-symbol{display:flex;gap:8px;align-items:center;font-size:11px;margin:0}
+.studio-shell [hidden]{display:none!important}
+.studio-shell .timeline-panel{grid-area:timeline;min-width:0;overflow:hidden}
+.studio-shell .timeline-toolbar{min-height:52px;padding:8px 12px;gap:12px}
+.studio-shell .timeline-toolbar button{min-width:44px;min-height:44px;font-size:13px}
+.studio-shell .toolbar-group{gap:6px}
+.studio-shell .toolbar-group select{font-size:13px;min-height:44px}
+.studio-shell #zoom-label{font-size:12px;min-width:40px}
+.studio-shell .timeline-transport{background:#101a27;min-height:56px;padding:8px 12px;gap:12px}
+.studio-shell .transport-buttons #studio-time{font-size:13px;font-variant-numeric:tabular-nums}
+.studio-shell .transport-buttons .small-muted,.studio-shell .timeline-count{font-size:12px}
+.studio-shell .transport-buttons button,.studio-shell .follow{min-height:44px;min-width:44px;font-size:12px}
+.studio-shell .timeline-help{font-size:12px;line-height:1.5}
+.studio-shell .inspector{grid-area:inspector;display:flex;position:sticky;top:12px;width:auto;min-width:0;min-height:0;max-height:calc(100dvh - 24px);overflow:auto;padding:16px;gap:14px;box-shadow:none;scrollbar-width:thin}
+.studio-shell .inspector-title .eyebrow{font-size:11px}
+.studio-shell .inspector label{font-size:11px;letter-spacing:.4px}
+.studio-shell .inspector input{font-size:14px;min-height:44px;padding:10px}
+.studio-shell .inspector .muted{font-size:13px;line-height:1.6}
+.inspector-close{display:none}
+.selection-summary{display:flex;align-items:center;gap:14px;font-size:14px;color:#e1ecf5}
+.selection-summary .selected-symbol{margin:0;width:48px;height:48px}
+.selection-summary small{display:block;font-size:12px;color:#9cb1c5;margin-top:4px}
+.property-heading{font-size:11px;font-weight:600;letter-spacing:1px;color:#acbdd0}
+.note-types,.property-symbols,.direction-presets,.duration-presets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.note-types{grid-template-columns:repeat(2,minmax(0,1fr))}
+.edit-scope,.member-picker,.side-picker{display:flex;gap:6px}
+.direction-presets button,.note-types button,.property-symbols button,.edit-scope button,.member-picker button,.side-picker button,.duration-presets button,.conversion-choice button,.note-details>button,.timeline-selection button,.note-navigation button{min-height:44px;border:1px solid #3b5269;border-radius:8px;background:#182a3d;color:#dce8f4;padding:8px;font-size:13px;cursor:pointer}
+.property-symbols button{font-size:24px;padding:4px}
+.edit-scope button,.member-picker button,.side-picker button{flex:1}
+.studio-shell button[aria-pressed=true]{border-color:#bcf87e;color:#bcf87e;background:#24392d}
+.note-types button[aria-pressed=true]{background:#bcf87e;color:#132019}
+.direction-control{display:grid;gap:10px}
+.direction-wheel{position:relative;width:208px;height:208px;max-width:100%;aspect-ratio:1;border:1px solid #4a6581;border-radius:50%;margin:4px auto;background:radial-gradient(circle at center,#29475e 0 17%,#172c40 18% 59%,#243f57 60% 61%,#112131 62%);touch-action:none;cursor:grab;flex-shrink:0}
+.direction-wheel:active{cursor:grabbing}
+.direction-wheel:before{content:none}
+.direction-wheel .compass{position:absolute;font-size:11px;color:#b8cde0;pointer-events:none}
+.direction-wheel .north{top:9px;left:50%;transform:translateX(-50%)}
+.direction-wheel .south{bottom:9px;left:50%;transform:translateX(-50%)}
+.direction-wheel .west{left:9px;top:50%;transform:translateY(-50%)}
+.direction-wheel .east{right:9px;top:50%;transform:translateY(-50%)}
+.wheel-arm{position:absolute;left:50%;top:50%;width:33%;height:3px;background:#bcf87e;transform:rotate(var(--preview));transform-origin:left center;pointer-events:none}
+.wheel-handle{position:absolute;right:-12px;top:-11px;width:26px;height:26px;background:#bcf87e;border:4px solid #18352b;border-radius:50%;box-shadow:0 0 0 7px #bcf87e18}
+.direction-wheel b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#d7e8ef;font-size:26px;pointer-events:none}
+.direction-control output{font-size:14px;font-weight:600;color:#c6ecac;text-align:center}
+.direction-control small{font-size:12px;line-height:1.5;color:#9eb5cb}
+.studio-shell .free-direction{display:flex;align-items:center;gap:9px;letter-spacing:0;font-size:13px}
+.studio-shell .free-direction input{width:18px;height:18px;min-height:18px;accent-color:#bcf87e}
+.note-details{border-top:1px solid #30465a;padding-top:10px}
+.note-details summary{font-size:13px;cursor:pointer;min-height:36px;line-height:36px;color:#c1d3e4}
+.note-details[open]{display:grid;gap:12px}
+.note-details label,.note-details .duration-presets,.note-details .side-picker,.note-details>button{margin:10px 0}
+.conversion-choice{display:grid;gap:8px;border:1px solid #9d884b;background:#3b341c;padding:12px;border-radius:8px;font-size:13px;line-height:1.5}
+.timeline-selection{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px;background:#182d40;border-bottom:1px solid #405e75;max-height:140px;overflow:auto}
+.timeline-selection>span{font-size:12px;color:#abc4d8;width:100%}
+.note-navigation{display:flex;gap:6px;align-items:center;padding:10px;border-top:1px solid #2c4257}
+.note-navigation select{flex:1;min-width:0;min-height:44px;font-size:13px}
+.studio-shell :is(button,input,select,summary,[tabindex]):focus-visible{outline:2px solid #bcf87e;outline-offset:3px}
+@media(max-width:1100px){
+ .studio-shell .editor-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"tools" "timeline"}
+ .studio-shell .inspector{display:none;position:fixed;right:12px;top:80px;width:min(320px,calc(100vw - 24px));max-height:calc(100dvh - 150px);z-index:20;box-shadow:0 10px 60px #000a}
+ .studio-shell .show-inspector .inspector{display:flex}
+ .inspector-close{display:block;min-width:44px;min-height:44px;color:#dce8f4;font-size:24px}
+ .studio-shell .tools{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding:8px;scrollbar-width:thin}
+ .studio-shell .tools>.eyebrow:first-child{display:none}
+ .studio-shell .tool{flex:0 0 auto;min-width:52px;flex-direction:column;font-size:11px;gap:3px;padding:5px}
+ .studio-shell .tool span{font-size:11px;white-space:nowrap}
+ .studio-shell .symbol-tools,.studio-shell .second-symbol{flex-shrink:0}
+ .studio-shell .timeline-toolbar{min-height:52px;padding:6px;gap:4px;flex-wrap:wrap}
+ .studio-shell .toolbar-group{gap:2px}
+ .studio-shell .timeline-transport{position:fixed;bottom:0;left:calc(var(--sidebar) + 12px);right:12px;z-index:25;border:1px solid #3c5265;border-radius:10px 10px 0 0;justify-content:space-between;min-height:56px;padding:5px 10px}
+ .studio-shell .app-main>main{padding-bottom:80px}
+ .studio-shell .timeline-help{display:none}
+ .studio-shell .inspector input{font-size:16px}
+}
+@media(max-width:500px) and (orientation:portrait){.studio-shell .timeline-transport{left:8px;right:8px}.studio-shell .timeline-count{display:none}.studio-shell .studio-top{gap:8px}.studio-shell .studio-actions{flex-wrap:wrap}.studio-shell .studio-actions .button{font-size:12px;min-height:44px}}
+
+.studio-shell .inspector{max-height:clamp(280px,calc(100dvh - 300px),760px)}
+.studio-shell label.free-direction{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:9px}
+@media(max-width:1100px){.studio-shell .inspector{max-height:calc(100dvh - 150px)}}
+@media(max-height:540px) and (orientation:landscape){
+ .studio-shell .app-header{display:none}
+ .studio-shell .studio-top{height:44px;min-height:44px;padding:0;margin-bottom:8px;align-items:center}
+ .studio-shell .studio-top>div:first-child{min-width:0;flex:1}
+ .studio-shell .studio-top .eyebrow,.studio-shell .studio-top .small-muted{display:none}
+ .studio-shell .studio-top h1{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+ .studio-shell .studio-actions{width:auto;flex-shrink:0;gap:4px}
+ .studio-shell .studio-actions .button{min-height:44px;min-width:44px;padding:6px;font-size:11px}
+ .studio-shell .studio-actions .save-status{max-width:75px!important;font-size:9px!important}
+ .studio-shell .studio-actions [data-editor=export] span,.studio-shell .studio-actions [data-editor=save] span{display:none}
+ .studio-shell .app-main>main{padding-top:6px}
+ .studio-shell .tools{padding:4px 6px;gap:4px}
+ .studio-shell .tool{min-height:44px;padding:3px;min-width:48px}
+ .studio-shell .timeline-toolbar{padding:3px 6px;min-height:50px}
+ .studio-shell .toolbar-group .divider{display:none}
+ .studio-shell .inspector{top:54px;max-height:calc(100dvh - 120px)}
+ .studio-shell .settings-open .chart-settings{position:fixed;top:54px;left:calc(var(--sidebar) + 12px);right:12px;max-height:calc(100dvh - 120px);overflow:auto;z-index:30;box-shadow:0 10px 50px #000a}
+}
+
+.compact-editor-mode{display:none}
+@media(max-width:760px){
+ .studio-shell .compact-editor-mode{display:block;flex:0 0 64px;width:64px;min-height:44px;font-size:11px;padding:4px}
+ .studio-shell .tools .tool[data-tool=select],.studio-shell .tools .tool[data-tool=erase],.studio-shell .tools .tool[data-tool=pan]{display:none}
+ .studio-shell .tool{width:44px;min-width:44px;flex:0 0 44px;padding:3px}
+ .studio-shell .tool span{font-size:11px;white-space:normal;line-height:1.1}
+ .studio-shell .tool svg{display:none}
+ .studio-shell .tools{gap:4px}
+ .studio-shell .symbol-tools{gap:4px}
+}
