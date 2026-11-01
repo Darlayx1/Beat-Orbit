@@ -1,3 +1,4 @@
+import { gridFromNote } from '../src/domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { ConflictError, Repository } from '../src/storage';
@@ -117,7 +118,7 @@ describe('transactional local library',()=>{
     await repo.addSong(song,new Blob(['audio']));const c=chart();
     await repo.saveDraft({chartId:c.chartId,chart:c,baseRevision:0,savedAt:new Date().toISOString()});
     repo.close();repo=new Repository();await repo.open();
-    expect((await repo.drafts())[0].chart.notes).toEqual(c.notes);
+    expect((await repo.drafts())[0].chart.notes).toEqual(c.notes.map(n=>({...n,grid:gridFromNote(n,c)})));
     expect(await repo.charts()).toHaveLength(0);
   });
   it('prevents two tabs from silently overwriting one revision',async()=>{
@@ -135,7 +136,7 @@ describe('transactional local library',()=>{
   it('keeps difficulty charts independent',async()=>{
     const easy=chart(),hard=chart([tap(2000)]);easy.difficulty='easy';hard.difficulty='hard';
     const e=await repo.saveChart(easy,0);await repo.saveChart(hard,0);await repo.saveChart({...e,notes:[]},1);
-    expect((await repo.charts()).find(c=>c.chartId===hard.chartId)!.notes).toEqual(hard.notes);
+    expect((await repo.charts()).find(c=>c.chartId===hard.chartId)!.notes).toEqual(hard.notes.map(n=>({...n,grid:gridFromNote(n,hard)})));
   });
   it('deletes audio, charts, results, and unsaved-chart drafts with a song',async()=>{
     await repo.addSong(song,new Blob(['audio']));const saved=await repo.saveChart(chart(),0),unsaved=chart();

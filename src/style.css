@@ -445,3 +445,27 @@
  .studio-shell .tools{gap:4px}
  .studio-shell .symbol-tools{gap:4px}
 }
+/* Compact editor, explicit toggle state, and keyboard access. */
+.studio-shell .timeline-toolbar{flex-wrap:wrap}
+.studio-shell .toolbar-group{flex-wrap:wrap}
+.studio-shell #zoom-value{width:70px;min-height:36px;font-size:13px}
+.studio-shell .timeline-transport{flex-wrap:wrap;gap:6px}
+.studio-shell .timeline-transport>button,.quantize-controls button,[data-normalize]{min-height:36px;border:1px solid #3b5269;border-radius:7px;background:#182a3d;color:#dce8f4;padding:6px 10px;cursor:pointer}
+.studio-shell .snap-button[aria-pressed=false]{color:#8797a9;background:transparent;border-color:transparent;box-shadow:none}
+.studio-shell .snap-button[aria-pressed=true]{color:var(--acid);background:#b8f67b18;border:1px solid #7a9b55}
+#shortcut-guide{padding:16px;max-height:260px;overflow:auto;background:#142236}
+#shortcut-guide>div{display:grid;grid-template-columns:minmax(140px,1fr) 2fr;gap:12px;padding:5px 0;font-size:12px;color:#c5d8e9}
+kbd{font-family:inherit;color:#bcf87e}
+.quantize-controls{display:flex;flex-direction:column;gap:8px}
+.studio-shell .tools{overflow:visible;max-height:none;align-self:stretch}
+.studio-shell .tool{flex-shrink:0}
+.studio-shell button:focus-visible,.studio-shell input:focus-visible,.studio-shell select:focus-visible{outline:2px solid #bcf87e;outline-offset:3px}
+.studio-shell.sidebar-collapsed{--sidebar:64px}
+.studio-shell.sidebar-collapsed>.sidebar{width:64px;padding:12px 6px;overflow-y:auto;overflow-x:hidden}
+.studio-shell.sidebar-collapsed .brand>span:last-child,.studio-shell.sidebar-collapsed .workspace-label,.studio-shell.sidebar-collapsed .nav-item>span,.studio-shell.sidebar-collapsed .nav-item>small,.studio-shell.sidebar-collapsed .sidebar-bottom .local-card,.studio-shell.sidebar-collapsed .sidebar-foot>span{display:none}
+.studio-shell.sidebar-collapsed .brand{padding:4px;justify-content:center}
+.studio-shell.sidebar-collapsed .nav-item{justify-content:center;padding:10px}
+.studio-shell.sidebar-collapsed .sidebar-foot-actions{flex-wrap:wrap}
+@media(max-width:1000px){.studio-shell .tools{flex-wrap:wrap;overflow:visible;max-height:none}.studio-shell .timeline-toolbar{gap:6px}.studio-shell .timeline-toolbar button{min-height:34px;min-width:32px}.studio-shell .timeline-transport .follow{display:none!important}}
+@media(max-height:540px){.studio-shell .timeline-toolbar{padding:4px 6px;min-height:36px}.studio-shell .tools{padding:4px;gap:4px}.studio-shell .tool{min-height:32px}.studio-shell .timeline-transport{padding:4px 6px;min-height:36px}.studio-shell .transport-buttons button,.studio-shell .timeline-transport>button{min-height:32px;min-width:32px}.studio-shell .timeline-help{padding:4px;font-size:10px}.studio-shell .timeline-toolbar #zoom-label,.studio-shell [data-editor=zoom-reset]{display:none}.studio-shell #zoom-value{min-height:32px;width:58px}.studio-shell .toolbar-group select{min-height:32px}}
+.studio-shell .tools .tool[data-tool=select],.studio-shell .tools .tool[data-tool=erase]{display:flex}

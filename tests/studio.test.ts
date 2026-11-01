@@ -8,7 +8,8 @@ import { targetPoint } from '../src/stage';
 import { chart, song, tap } from './fixtures';
 import { buffer, change, click, domSetup, pointer } from './dom-helpers';
 let repo:Repository,audio:AudioTransport,studio:Studio|undefined;
-beforeEach(async()=>{domSetup();repo=new Repository();await repo.open();audio=new AudioTransport();audio.setBuffer(buffer());});
+let frame:ReturnType<typeof domSetup>['frame'];
+beforeEach(async()=>{({frame}=domSetup());repo=new Repository();await repo.open();audio=new AudioTransport();audio.setBuffer(buffer());});
 afterEach(async()=>{await studio?.dispose().catch(()=>{});studio=undefined;audio.dispose();repo.close();vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(notes= [] as ReturnType<typeof tap>[]){
   const c=await repo.saveChart(chart(notes),0),playtest=vi.fn();
@@ -16,6 +17,139 @@ async function mount(notes= [] as ReturnType<typeof tap>[]){
   return{c,playtest,canvas:document.querySelector('canvas')!};
 }
 describe('Studio DOM interactions',()=>{
+  it('moves short Hold heads without resizing and resizes only the dragged Hold in a multi-selection',async()=>{
+    const {canvas}=await mount([tap(1000,{type:'hold',durationMs:125}),tap(3000,{type:'hold',durationMs:1000})]);
+    click('[data-tool="select"]');
+    window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA',ctrlKey:true,bubbles:true}));
+    pointer(canvas,'pointerdown',168.75,126);pointer(canvas,'pointermove',223.75,126);pointer(canvas,'pointerup',223.75,126);
+    expect(studio!.chart.notes.map(n=>n.durationMs)).toEqual([625,1000]);
+    click('[data-editor="undo"]');
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointermove',265,126);pointer(canvas,'pointerup',265,126);
+    expect(studio!.chart.notes.map(n=>n.timeMs)).toEqual([2000,4000]);
+    expect(studio!.chart.notes.map(n=>n.durationMs)).toEqual([125,1000]);
+    click('[data-editor="undo"]');expect(studio!.chart.notes.map(n=>n.timeMs)).toEqual([1000,3000]);
+  });
+  it('highlights every selected note on the timeline',async()=>{
+    const {canvas}=await mount([tap(1000),tap(2000)]);
+    click('[data-editor="stage-toggle"]');
+    window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA',ctrlKey:true,bubbles:true}));
+    const context=canvas.getContext('2d')!,strokes:string[]=[];
+    context.stroke=()=>{strokes.push(String(context.strokeStyle));};
+    frame();expect(strokes.filter(color=>color==='#fff')).toHaveLength(2);
+  });
+  it('keeps fractional zoom labels consistent with the editable value',async()=>{
+    await mount();
+    for(const value of ['0.5','33.5']){
+      change('#zoom-value',value);
+      expect(document.querySelector<HTMLInputElement>('#zoom-value')!.value).toBe(value);
+      expect(document.querySelector('#zoom-label')!.textContent).toBe(value+'%');
+    }
+  });
+  it('preserves finer target placement on a legacy note when using a thirds stage grid',async()=>{
+    const {canvas}=await mount([tap(1000)]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    change('#snap-resolution','6');
+    const stage=document.querySelector('#stage-preview')!,start=targetPoint(studio!.chart.notes[0],800,350);
+    const end=targetPoint({...studio!.chart.notes[0],target:{x:7/15,y:.5}},800,350);
+    pointer(stage,'pointerdown',start.x,start.y);pointer(stage,'pointermove',end.x,end.y);pointer(stage,'pointerup',end.x,end.y);
+    const n=studio!.chart.notes[0];
+    expect(n.target.x).toBe(.4667);expect(n.grid!.subdivision).toBe(16);expect(n.grid!.targetSubdivision).toBe(6);
+    await studio!.save();expect((await repo.charts())[0].notes[0].target.x).toBe(.4667);
+    change('#note-target-x','0.533333333');expect(studio!.chart.notes[0].target.x).toBe(.5333);
+  });
+  it('previews legacy conversion, blocks saving mixed pairs, and converts with one undo step',async()=>{
+    const {canvas}=await mount([tap(1000,{chordId:'legacy',side:'left'}),tap(1000,{chordId:'legacy',side:'right',symbol:'cross'})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    await expect(studio!.save()).rejects.toThrow(/Konversi/);
+    const source=studio!.chart.notes.find(n=>n.symbol==='cross')!;
+    click('[data-normalize="'+source.id+'"]');
+    expect(studio!.chart.notes.every(n=>n.symbol==='cross')).toBe(true);
+    await studio!.save();click('[data-editor="undo"]');
+    expect(studio!.chart.notes.map(n=>n.symbol).sort()).toEqual(['cross','triangle']);
+  });
+  it('restores automatic target placement after manual dragging and exposes shortcuts',async()=>{
+    await mount();window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyN',bubbles:true}));
+    expect(studio!.chart.notes[0].grid!.autoTarget).toBe(true);
+    change('#note-target-x','0.7');expect(studio!.chart.notes[0].grid!.autoTarget).toBe(false);
+    click('[data-editor="auto-target"]');expect(studio!.chart.notes[0].grid!.autoTarget).toBe(true);
+    expect(studio!.chart.notes[0].target.x).toBe(.5);
+    click('[data-editor="shortcuts"]');expect(document.querySelector('#shortcut-guide')!.hasAttribute('hidden')).toBe(false);
+    expect(document.querySelector('#shortcut-guide')!.textContent).toContain('Shift+D');
+    const first=document.querySelector<HTMLElement>('[data-tool="select"]')!;first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+    expect((document.activeElement as HTMLElement).dataset.tool).toBe('tap');
+  });
+  it('prepares types and shapes with shortcuts, edits pairs atomically and ignores text input',async()=>{
+    await mount();
+    const key=(code:string,extra:KeyboardEventInit={})=>window.dispatchEvent(new KeyboardEvent('keydown',{code,bubbles:true,...extra}));
+    key('KeyD',{shiftKey:true});key('Digit4');key('KeyN');
+    expect(studio!.chart.notes).toHaveLength(2);
+    expect(studio!.chart.notes.every(n=>n.type==='hold'&&n.symbol==='cross'&&n.durationMs===125)).toBe(true);
+    key('Digit1',{altKey:true});expect(studio!.chart.notes.every(n=>n.symbol==='triangle')).toBe(true);
+    key('KeyT',{altKey:true});expect(document.querySelector('.conversion-choice')).not.toBeNull();
+    const field=document.querySelector<HTMLInputElement>('#chart-name')!;field.focus();
+    field.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyE',key:'e',bubbles:true}));
+    expect(studio!.tool).toBe('dual-hold');
+  });
+  it('moves selected Hold endpoints together when BPM and offset change and persists thirds',async()=>{
+    const {canvas}=await mount([tap(1000,{type:'hold',durationMs:500})]);
+    pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
+    change('#snap-resolution','6');change('#note-length','2');
+    expect(studio!.chart.notes[0].durationMs).toBeCloseTo(2000/3);
+    const grid=clone(studio!.chart.notes[0].grid);
+    change('#chart-offset','125');change('#chart-bpm','90');
+    expect(studio!.chart.notes[0].grid).toEqual(grid);
+    expect(studio!.chart.notes[0].timeMs).toBeCloseTo(125+4000/3);
+    expect(studio!.chart.notes[0].durationMs).toBeCloseTo(8000/9);
+    await studio!.save();expect((await repo.charts())[0].notes[0].grid).toEqual(grid);
+  });
+  it('changes grid resolution without moving old notes and quantizes only on request',async()=>{
+    const {canvas}=await mount([tap(1120,{type:'hold',durationMs:620})]);
+    pointer(canvas,'pointerdown',168,126);pointer(canvas,'pointerup',168,126);
+    change('#snap-resolution','6');expect(studio!.chart.notes[0].timeMs).toBe(1120);
+    change('#quantize-scope','start');click('[data-editor="quantize"]');
+    expect(studio!.chart.notes[0].timeMs).toBeCloseTo(1000);
+    expect(studio!.chart.notes[0].durationMs).toBeCloseTo(620);
+    click('[data-editor="undo"]');expect(studio!.chart.notes[0].timeMs).toBe(1120);
+  });
+  it('selects all for atomic duplication and deletion without merging independent pairs',async()=>{
+    await mount([tap(1000),tap(2000,{side:'left',chordId:'pair'}),tap(2000,{side:'right',chordId:'pair'})]);
+    window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA',ctrlKey:true,bubbles:true}));
+    window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD',ctrlKey:true,bubbles:true}));
+    expect(studio!.chart.notes).toHaveLength(6);
+    const copies=studio!.chart.notes.filter(n=>n.timeMs===2500);expect(copies).toHaveLength(2);
+    expect(copies[0].chordId).toBe(copies[1].chordId);expect(copies[0].chordId).not.toBe('pair');
+    window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA',ctrlKey:true,bubbles:true}));
+    click('[data-editor="delete"]');expect(studio!.chart.notes).toHaveLength(0);
+    click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(6);
+  });
+  it('pans empty space with Select and never inserts a note',async()=>{
+    const {canvas}=await mount();click('[data-tool="select"]');
+    pointer(canvas,'pointerdown',300,126);pointer(canvas,'pointermove',200,126);pointer(canvas,'pointerup',200,126);
+    expect(document.querySelector('#timeline-scroll')!.scrollLeft).toBe(100);
+    expect(studio!.chart.notes).toHaveLength(0);
+    expect(document.querySelector('[data-tool="pan"]')).toBeNull();
+    expect(document.querySelector('#note-navigator')).toBeNull();
+  });
+  it('rejects interaction with an invisible selected target and restores Snap state immediately',async()=>{
+    const {canvas}=await mount([tap(5000)]);
+    pointer(canvas,'pointerdown',595,126);pointer(canvas,'pointerup',595,126);
+    const before=clone(studio!.chart.notes[0].target),p=targetPoint(studio!.chart.notes[0],800,350),stage=document.querySelector('#stage-preview')!;
+    pointer(stage,'pointerdown',p.x,p.y);pointer(stage,'pointermove',450,240);pointer(stage,'pointerup',450,240);
+    expect(studio!.chart.notes[0].target).toEqual(before);expect(studio!.doc.canUndo).toBe(false);
+    click('[data-editor="snap"]');
+    expect(document.querySelector('[data-editor="snap"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-editor="snap"]')!.classList.contains('active')).toBe(false);
+  });
+  it('uses reversible zoom steps and preserves the pointer time during wheel zoom',async()=>{
+    const {canvas}=await mount();
+    const viewport=document.querySelector('#timeline-scroll')!;viewport.scrollLeft=100;viewport.dispatchEvent(new Event('scroll'));
+    const before=(studio!.scroll+200-45)/studio!.zoom;
+    canvas.dispatchEvent(new WheelEvent('wheel',{ctrlKey:true,clientX:200,deltaY:-40,bubbles:true,cancelable:true}));
+    expect((studio!.scroll+200-45)/studio!.zoom).toBeCloseTo(before,8);
+    change('#zoom-value','100');click('[data-editor="zoom-in"]');expect(studio!.zoom).toBeCloseTo(137.5);
+    click('[data-editor="zoom-out"]');expect(studio!.zoom).toBeCloseTo(110);
+  });
   it('previews wheel rotation without mutating notes and commits a whole pair in one undo step',async()=>{
     const {canvas}=await mount([tap(1000,{side:'left',chordId:'wheel',entryAngleDeg:0}),tap(1000,{symbol:'circle',side:'right',chordId:'wheel',entryAngleDeg:0})]);
     pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
@@ -70,7 +204,7 @@ describe('Studio DOM interactions',()=>{
     click('[data-editor="cancel-conversion"]');expect(studio!.doc.canUndo).toBe(false);
     click('[data-note-type="hold"]');
     const keep=studio!.chart.notes.find(n=>n.symbol==='circle')!;click('[data-keep-note="'+keep.id+'"]');
-    expect(studio!.chart.notes).toHaveLength(1);expect(studio!.chart.notes[0]).toMatchObject({symbol:'circle',type:'hold',side:'either',durationMs:500});expect(studio!.chart.notes[0].chordId).toBeUndefined();
+    expect(studio!.chart.notes).toHaveLength(1);expect(studio!.chart.notes[0]).toMatchObject({symbol:'circle',type:'hold',side:'either',durationMs:125});expect(studio!.chart.notes[0].chordId).toBeUndefined();
     click('[data-editor="undo"]');expect(studio!.chart.notes).toHaveLength(2);expect(studio!.chart.notes.every(n=>n.chordId==='convert'&&n.type==='tap')).toBe(true);
   });
   it('keeps an overlapping Tap and Hold selectable and does not insert with eraser, pan or select',async()=>{
@@ -78,7 +212,7 @@ describe('Studio DOM interactions',()=>{
     pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
     const picker=document.querySelector<HTMLElement>('#timeline-selection')!;expect(picker.hidden).toBe(false);expect(picker.querySelectorAll('[data-pick-note]')).toHaveLength(2);
     const circle=studio!.chart.notes.find(n=>n.symbol==='circle')!;click('#timeline-selection [data-pick-note="'+circle.id+'"]');expect(studio!.selected).toBe(circle.id);
-    for(const tool of ['erase','pan','select']){click('[data-tool="'+tool+'"]');window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyN',key:'n',bubbles:true}));}
+    for(const tool of ['erase','select']){click('[data-tool="'+tool+'"]');window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyN',key:'n',bubbles:true}));}
     expect(studio!.chart.notes).toHaveLength(2);
   });
   it('does not move a selected target when empty stage space is clicked',async()=>{
@@ -126,8 +260,8 @@ describe('Studio DOM interactions',()=>{
     pointer(canvas,'pointerdown',155,126);pointer(canvas,'pointerup',155,126);
     expect(studio!.chart.notes[0].timeMs).toBe(1000);
     click('[data-tool="hold"]');pointer(canvas,'pointerdown',265,185);pointer(canvas,'pointerup',265,185);
-    expect(studio!.chart.notes.find(n=>n.type==='hold')!.durationMs).toBe(500);
-    click('[data-tool="dual"]');click('[data-partner="0"]');
+    expect(studio!.chart.notes.find(n=>n.type==='hold')!.durationMs).toBe(125);
+    click('[data-tool="dual"]');
     pointer(canvas,'pointerdown',375,126);pointer(canvas,'pointerup',375,126);
     const dual=studio!.chart.notes.filter(n=>n.timeMs===3000);
     expect(dual.map(n=>n.side).sort()).toEqual(['left','right']);
@@ -138,7 +272,7 @@ describe('Studio DOM interactions',()=>{
     pointer(canvas,'pointerdown',485,126);pointer(canvas,'pointerup',485,126);
     const dualHold=studio!.chart.notes.filter(n=>n.timeMs===4000);
     expect(dualHold).toHaveLength(2);
-    expect(dualHold.every(n=>n.type==='hold'&&n.durationMs===500)).toBe(true);
+    expect(dualHold.every(n=>n.type==='hold'&&n.durationMs===125)).toBe(true);
     expect(dualHold.map(n=>n.side).sort()).toEqual(['left','right']);
   });
   it('moves and resizes with one history step per completed gesture',async()=>{

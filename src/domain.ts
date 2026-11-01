@@ -3,7 +3,8 @@ export const GLYPHS = ['△', '○', '□', '×'];
 export const DIFFICULTIES = ['easy', 'normal', 'hard', 'expert'] as const;
 export type SymbolName = typeof SYMBOLS[number];
 export type Side = 'either' | 'left' | 'right';
-export type Note = { id: string; type: 'tap' | 'hold'; symbol: SymbolName; side: Side; timeMs: number; target: { x: number; y: number }; entryAngleDeg: number; travelTimeMs: number; durationMs?: number; chordId?: string };
+export type NoteGrid = { startBeat: number; endBeat?: number; subdivision: number; autoTarget?: boolean; targetSubdivision?: number };
+export type Note = { grid?: NoteGrid; id: string; type: 'tap' | 'hold'; symbol: SymbolName; side: Side; timeMs: number; target: { x: number; y: number }; entryAngleDeg: number; travelTimeMs: number; durationMs?: number; chordId?: string };
 export type Song = { id: string; title: string; artist: string; durationMs: number; fileName: string; format: string; fileSize: number; importedAt: string; source: 'demo' | 'imported'; bpm?: number; palette: number };
 export type Chart = { schemaVersion: 1 | 2; chartId: string; songId: string; name: string; difficulty: typeof DIFFICULTIES[number]; rulesetId: 'beatorbit-standard-v1'; revision: number; timing: { bpm: number; offsetMs: number; timeSignature: { numerator: number; denominator: 4 } }; audioRef: { fileName: string; durationMs: number }; notes: Note[]; updatedAt: string };
 export type Draft = { chartId: string; chart: Chart; baseRevision: number; savedAt: string };
@@ -17,6 +18,7 @@ export const exactTime = (ms: number) => formatTime(ms) + '.' + String(Math.roun
 // Angles point from the target toward the entry edge: 0 right, 90 bottom.
 // The outer bounds (0.1–0.9) are unchanged; the steps are halved so the stage offers 4x more snap positions.
 export const STAGE_GRID = { min: 0.1, max: 0.9, majorStep: 0.05, minorStep: 0.025 } as const;
+export const targetGridStep = (subdivision: number) => subdivision === 3 || subdivision === 6 ? 1 / 120 : STAGE_GRID.minorStep;
 export function snapTargetCoord(value: number, step: number = STAGE_GRID.minorStep): number {
   const clamped = Math.max(STAGE_GRID.min, Math.min(STAGE_GRID.max, value));
   return Number((Math.round(clamped / step) * step).toFixed(4));
@@ -29,6 +31,7 @@ export function bpmTravelTimeMs(bpm: number): number {
   return Math.round(Math.max(200, Math.min(5000, 2000 * Math.pow(120 / safe, 1.35))));
 }
 export function gridStepForSubdivision(subdivision: number): number {
+  if (subdivision === 3 || subdivision === 6) return 0.8 / subdivision;
   if (subdivision >= 32) return STAGE_GRID.minorStep; // 1/32 -> 1/2 grid unit (0.025)
   if (subdivision >= 16) return STAGE_GRID.majorStep; // 1/16 -> 1 grid unit (0.05)
   if (subdivision >= 8) return STAGE_GRID.majorStep * 2; // 1/8 -> 2 grid units (0.10)
@@ -40,9 +43,9 @@ export function defaultLayout(symbol: SymbolName, bpm = 120, stepIndex = 0, subd
   const step = gridStepForSubdivision(subdivision);
   // Step back and forth cleanly along the horizontal grid line (0.20 to 0.80)
   const span = 0.6;
-  const rawOffset = (stepIndex * step) % (span * 2);
+  const rawOffset = ((stepIndex * step) % (span * 2) + span * 2) % (span * 2);
   const offset = rawOffset <= span ? rawOffset : span * 2 - rawOffset;
-  const x = stepIndex === 0 ? 0.5 : snapTargetCoord(0.2 + offset, STAGE_GRID.minorStep);
+  const x = stepIndex === 0 ? 0.5 : snapTargetCoord(0.2 + offset, subdivision === 3 || subdivision === 6 ? 1 / 120 : STAGE_GRID.minorStep);
   const angles = [270, 0, 90, 180];
   return { target: { x, y: rowY }, entryAngleDeg: angles[index], travelTimeMs: bpmTravelTimeMs(bpm) };
 }
@@ -52,6 +55,25 @@ export function newChart(song: Song, difficulty: Chart['difficulty'] = 'normal')
 export function snapTime(timeMs: number, chart: Chart, denominator: number): number {
   const step = 60000 / chart.timing.bpm * 4 / denominator;
   return Math.max(0, Math.round((timeMs - chart.timing.offsetMs) / step) * step + chart.timing.offsetMs);
+}
+export const SUBDIVISIONS = [1, 2, 3, 4, 6, 8, 16, 32] as const;
+export const beatMs = (chart: Chart) => 60000 / chart.timing.bpm;
+export function gridFromNote(note: Note, chart: Chart): NoteGrid {
+  return { startBeat: (note.timeMs-chart.timing.offsetMs)/beatMs(chart), ...(note.type==='hold'?{endBeat:(note.timeMs+(note.durationMs||0)-chart.timing.offsetMs)/beatMs(chart)}:{}), subdivision:note.grid?.subdivision||16, ...(note.grid?.autoTarget?{autoTarget:true}:{}), ...(note.grid?.targetSubdivision!==undefined?{targetSubdivision:note.grid.targetSubdivision}:{}) };
+}
+export function projectGrid(note: Note, chart: Chart): void {
+  if(!note.grid)return;
+  note.timeMs=chart.timing.offsetMs+note.grid.startBeat*beatMs(chart);
+  if(note.type==='hold')note.durationMs=(note.grid.endBeat!-note.grid.startBeat)*beatMs(chart);
+  else delete note.durationMs;
+  if(note.grid.autoTarget) note.target=defaultLayout(note.symbol,chart.timing.bpm,Math.round(note.grid.startBeat*note.grid.subdivision/4),note.grid.subdivision).target;
+}
+export function quantizeNote(note: Note, chart: Chart, subdivision: number, scope: 'start'|'end'|'both'): void {
+  const grid=gridFromNote(note,chart), step=4/subdivision;
+  const start=scope==='end'?grid.startBeat:Math.round(grid.startBeat/step)*step;
+  const end=note.type==='hold'?(scope==='start'?grid.endBeat!+start-grid.startBeat:Math.round(grid.endBeat!/step)*step):undefined;
+  if(end!==undefined&&end<=start)throw new Error('End Hold harus sesudah awal Hold.');
+  note.grid={...grid,startBeat:start,...(end!==undefined?{endBeat:end}:{}),subdivision};projectGrid(note,chart);
 }
 const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const text = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 200;
@@ -75,14 +97,25 @@ export function parseChart(value: unknown): Chart {
     if (!finite(layout.entryAngleDeg) || layout.entryAngleDeg < 0 || layout.entryAngleDeg >= 360) throw new Error('Entry direction must be 0–359.99 degrees.');
     const travel = layout.travelTimeMs ?? bpmTravelTimeMs(c.timing.bpm);
     if (!finite(travel) || travel < 200 || travel > 5000) throw new Error('Travel time must be 200–5000 ms.');
+    if(n.grid && (!finite(n.grid.startBeat)||!SUBDIVISIONS.includes(n.grid.subdivision as typeof SUBDIVISIONS[number])||n.grid.autoTarget!==undefined&&typeof n.grid.autoTarget!=='boolean'||n.type==='hold'&&(!finite(n.grid.endBeat)||n.grid.endBeat<=n.grid.startBeat)))throw new Error('Invalid musical grid position.');
+    if(n.grid?.targetSubdivision!==undefined&&!SUBDIVISIONS.includes(n.grid.targetSubdivision as typeof SUBDIVISIONS[number]))throw new Error('Invalid target grid subdivision.');
+    const grid:NoteGrid=n.grid?{startBeat:n.grid.startBeat,subdivision:n.grid.subdivision,...(n.type==='hold'?{endBeat:n.grid.endBeat}:{}),...(n.grid.autoTarget!==undefined?{autoTarget:n.grid.autoTarget}:{}),...(n.grid.targetSubdivision!==undefined?{targetSubdivision:n.grid.targetSubdivision}:{})}:gridFromNote(n,c);
+    const projected={...n,grid};projectGrid(projected,c);
+    if(projected.timeMs<0||projected.timeMs>LIMITS.durationMs||n.type==='hold'&&(!finite(projected.durationMs)||projected.durationMs<=0||projected.durationMs>LIMITS.durationMs))throw new Error('Grid position is outside audio bounds.');
     ids.add(n.id);
-    return { target: snapTarget(layout.target), entryAngleDeg: layout.entryAngleDeg, travelTimeMs: bpmTravelTimeMs(c.timing.bpm), id: n.id, type: n.type, symbol: n.symbol, side: n.side, timeMs: n.timeMs, ...(n.type === 'hold' ? { durationMs: n.durationMs } : {}), ...(n.chordId ? { chordId: n.chordId } : {}) };
+    return { grid, target: grid.autoTarget ? projected.target : snapTarget(layout.target,targetGridStep(grid.targetSubdivision??grid.subdivision)), entryAngleDeg: layout.entryAngleDeg, travelTimeMs: bpmTravelTimeMs(c.timing.bpm), id: n.id, type: n.type, symbol: n.symbol, side: n.side, timeMs: projected.timeMs, ...(n.type === 'hold' ? { durationMs: projected.durationMs } : {}), ...(n.chordId ? { chordId: n.chordId } : {}) };
   });
   return { schemaVersion: 2, chartId: c.chartId, songId: c.songId, name: c.name, difficulty: c.difficulty, rulesetId: 'beatorbit-standard-v1', revision: c.revision, timing: clone(c.timing), audioRef: { fileName: c.audioRef.fileName, durationMs: c.audioRef.durationMs }, notes: sortNotes(notes), updatedAt: c.updatedAt };
+}
+export function invalidDualGroups(notes: Note[]): Note[][] {
+  const groups=new Map<string,Note[]>();
+  for(const n of notes)if(n.chordId){const group=groups.get(n.chordId)||[];group.push(n);groups.set(n.chordId,group);}
+  return [...groups.values()].filter(group=>group.length!==2||group.some(n=>n.symbol!==group[0].symbol||n.type!==group[0].type||Math.abs(n.timeMs-group[0].timeMs)>1e-7||Math.abs((n.durationMs||0)-(group[0].durationMs||0))>1e-7)||!group.some(n=>n.side==='left')||!group.some(n=>n.side==='right'));
 }
 export function validatePlayable(chart: Chart, durationMs: number): { errors: string[]; warnings: string[] } {
   const errors: string[] = [], warnings: string[] = [];
   try { parseChart(chart); } catch (e) { return { errors: [(e as Error).message], warnings }; }
+  if(invalidDualGroups(chart.notes).length)errors.push('Dual harus dua simbol dan tipe sama dengan awal serta End Hold yang sama. Konversi pasangan lama terlebih dahulu.');
   if (!chart.notes.length) errors.push('Add at least one note before playing.');
   const notes = sortNotes([...chart.notes]);
   for (const n of notes) {
@@ -125,6 +158,15 @@ export class EditorDocument {
     const next = clone(this.chart);
     edit(next);
     if (JSON.stringify(next) === JSON.stringify(this.chart)) return false;
+    const timingChanged=next.timing.bpm!==this.chart.timing.bpm||next.timing.offsetMs!==this.chart.timing.offsetMs;
+    const previous=new Map(this.chart.notes.map(n=>[n.id,n]));
+    for(const note of next.notes){
+      const old=previous.get(note.id);
+      if(timingChanged&&old){note.grid=clone(old.grid||gridFromNote(old,this.chart));projectGrid(note,next);}
+      else if(!old||note.timeMs!==old.timeMs||note.durationMs!==old.durationMs||note.type!==old.type){note.grid=gridFromNote(note,next);projectGrid(note,next);}
+      if(old&&(note.target.x!==old.target.x||note.target.y!==old.target.y)&&!timingChanged&&note.timeMs===old.timeMs&&note.grid&&note.grid.autoTarget===old.grid?.autoTarget)note.grid.autoTarget=false;
+      if(note.timeMs<0||note.timeMs+(note.durationMs||0)>next.audioRef.durationMs+1e-7)throw new Error('Perubahan melewati batas audio; sesuaikan BPM, offset, atau posisi note.');
+    }
     const parsed = parseChart(next);
     this.past.push(clone(this.chart));
     while (this.past.length > 100 || this.past.length > 1 && this.past.reduce((sum, c) => sum + c.notes.length, 0) > 50000) this.past.shift();

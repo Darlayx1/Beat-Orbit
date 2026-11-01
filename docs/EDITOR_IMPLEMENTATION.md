@@ -43,3 +43,18 @@ Belum diverifikasi pada Safari/iPhone, Android fisik, Firefox, atau multitouch p
 Tidak ada perubahan schema, RLS, autentikasi produksi, atau strategi sinkronisasi cloud. Risiko penyimpanan/akun dalam PRD masih perlu pekerjaan terpisah. Backlog seperti multi-select/clipboard, metronome, loop A–B, Playtest rentang, version history, dan normalisasi impor juga belum diimplementasikan pada tahap UI ini.
 
 Tidak ada commit, push, atau deployment pada checkpoint ini.
+
+## Musical grid and keyboard editor (2026-11-01)
+
+- Notes persist `grid.startBeat`, optional `grid.endBeat`, and placement subdivision alongside derived playback milliseconds. Legacy v1/v2 data acquires beat positions without quantization. BPM/offset edits preserve these endpoints; edits extending outside audio are rejected atomically.
+- Grid labels retain the existing whole-note convention: 1/4 is one quarter-note beat; 1/3 and 1/6 therefore span 4/3 and 2/3 beats. Switching subdivision changes the editing grid only. Quantize explicitly changes start, end, or both; start-only preserves Hold length.
+- Newly placed targets follow musical grid indices, independent of insertion order or Hold duration. Manual stage placement overrides automatic layout; “Ikuti jalur grid” restores it. Thirds have additional stage guides and finer spatial snapping.
+- Dual creation uses matching symbols and automatic opposite input sides. Mixed legacy chords remain available for inspection/export/draft recovery and offer explicit conversion; publishing a chart requires valid pairs. Single conversion retains the explicitly chosen member.
+- Select/Pan selects on note click, moves/resizes on note drag, pans empty space and seeks from the ruler. Shift-click adds selection; Ctrl/Cmd+A selects all. Move, delete, duplicate and Quantize operate on the selection in one history step.
+- Zoom supports numeric percentages, reversible preset buttons, reset, Fit chart, Fit selection, and Ctrl/Cmd+wheel with pointer anchoring. Every visible note retains its symbol at reduced scale; notes are never replaced with count clusters.
+- Transport includes previous/next selection and Stage visibility. The left app sidebar can collapse and expand. Tool and symbol choices remain accessible at short landscape sizes. Snap styling follows the same boolean and ARIA state.
+- Press `?` in the editor for the shortcut reference. Tool selection: V/E. Placement types: T/H/D/Shift+D. Symbols: 1–4. Alt modifies selected notes; text inputs retain normal typing. Hold length and End Hold controls use the current grid, including thirds.
+- Standard Play and Studio continue sharing stage geometry and gameplay timing. Hold and Dual Hold have explicit labels and release markers. Swing alternates with musical beat position and is identical for paired members.
+- Short Hold heads remain draggable even when their release marker is close. Resizing affects the dragged Hold and its Dual partner; other selected Holds retain their lengths. Timeline highlighting includes the entire selection.
+- Manual target placement records `grid.targetSubdivision` independently of the note timing subdivision, so third-grid coordinates survive saving, reloading, and later timing edits. Numeric target controls and stage dragging use the same spatial precision.
+- Fractional zoom percentages use the same displayed precision in the label and input, including 0.5% and 33.5%.

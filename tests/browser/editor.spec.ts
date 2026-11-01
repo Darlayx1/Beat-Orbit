@@ -17,6 +17,37 @@ test.beforeEach(async({page})=>{
   });
 });
 
+test('keyboard placement, short Hold dragging and fractional zoom remain predictable',async({page})=>{
+  await page.goto('./');
+  test.skip(await page.evaluate(()=>typeof AudioContext==='undefined'),'This runtime has no Web Audio API.');
+  await page.locator('#audio-file').setInputFiles({name:'Keyboard editor.wav',mimeType:'audio/wav',buffer:Buffer.from(await makeDemoAudio(120,8).arrayBuffer())});
+  await page.locator('#import-title').fill('Keyboard editor');
+  await page.locator('#confirm-import').click();await page.locator('[data-choice="studio"]').click();
+  const canvas=page.locator('#timeline');await expect(canvas).toBeVisible();
+  await canvas.click({position:{x:155,y:12}});
+  await page.keyboard.press('h');await page.keyboard.press('1');await page.keyboard.press('n');
+  await expect(page.locator('#note-count')).toHaveText('1 notes');
+  await expect(page.locator('#note-time')).toHaveValue('1000');
+  await expect(page.locator('#note-length')).toHaveValue('1');
+  await page.keyboard.press('v');
+  const box=(await canvas.boundingBox())!;
+  const y=await canvas.evaluate(el=>{const header=innerHeight<540?48:96;return header+(el.clientHeight-header-16)/2;});
+  await page.mouse.move(box.x+155,box.y+y);await page.mouse.down();
+  await page.mouse.move(box.x+265,box.y+y,{steps:6});await page.mouse.up();
+  await expect(page.locator('#note-time')).toHaveValue('2000');
+  await expect(page.locator('#note-length')).toHaveValue('1');
+  await page.locator('#zoom-value').fill('33.5');await page.locator('#zoom-value').press('Tab');
+  await expect(page.locator('#zoom-value')).toHaveValue('33.5');
+  await expect(page.locator('#zoom-label')).toHaveText('33.5%');
+  await page.locator('[data-editor="sidebar"]').click();
+  await expect(page.locator('.app-shell')).toHaveClass(/sidebar-collapsed/);
+  await page.locator('[data-editor="sidebar"]').click();
+  await expect(page.locator('.app-shell')).not.toHaveClass(/sidebar-collapsed/);
+  await canvas.focus();await page.keyboard.press('?');
+  await expect(page.locator('#shortcut-guide')).toBeVisible();
+  await expect(page.locator('#shortcut-guide')).toContainText('Shift+D');
+});
+
 test('one-lane editor: wheel, Dual conversion, persistence and reachable transport',async({page},testInfo)=>{
   test.setTimeout(45000);
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
@@ -63,11 +94,9 @@ test('one-lane editor: wheel, Dual conversion, persistence and reachable transpo
   await page.reload();await page.locator('.track-row').first().waitFor();
   const row=page.locator('.track-row').filter({hasText:'Editor interaction'});
   await row.locator('[data-action="edit-song"]').click();await expect(canvas).toBeVisible();
-  const navigator=page.locator('#note-navigator');
-  const values=await navigator.locator('option').evaluateAll(options=>options.map(el=>(el as HTMLOptionElement).value).filter(Boolean));
-  expect(values).toHaveLength(2);
-  for(const value of values){
-    await navigator.selectOption(value);
+  await expect(page.locator('#note-navigator')).toHaveCount(0);
+  for(let i=0;i<2;i++){
+    await page.locator('[data-editor="next-note"]').click();
     await expect(page.locator('#note-entry')).toHaveValue('22.5');
     await expect(page.locator('[data-note-type="dual"]')).toHaveAttribute('aria-pressed','true');
   }

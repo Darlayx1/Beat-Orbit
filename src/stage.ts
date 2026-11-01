@@ -1,4 +1,4 @@
-import { STAGE_GRID, SYMBOLS, type Note, type SymbolName } from './domain';
+import { defaultLayout, STAGE_GRID, SYMBOLS, type Note, type SymbolName } from './domain';
 
 // Official PlayStation symbol colors: Triangle (Green), Circle (Red), Square (Pink), Cross (Blue)
 export const COLORS = ['#00d49e', '#ff4d4d', '#ec66a2', '#4e84f4'];
@@ -61,7 +61,7 @@ export function travelSpan(width: number, height: number) {
   return Math.hypot(r.width, r.height) * .46;
 }
 const direction = (note: Note) => { const a = note.entryAngleDeg * Math.PI / 180; return { x: Math.cos(a), y: Math.sin(a) }; };
-const swingSign = (note: Note) => ((Math.round(note.timeMs / 10) + Math.round(note.target.x * 40) + Math.round(note.target.y * 40) + Math.round(note.entryAngleDeg / 15)) % 2 === 0 ? 1 : -1);
+const swingSign = (note: Note) => (Math.floor((note.grid?.startBeat ?? note.timeMs/500)+1e-7) % 2 === 0 ? 1 : -1);
 /**
  * Project DIVA-style swinging trajectory:
  * The straight chord between `entryPoint` (remaining = 1) and `targetPoint` (remaining = 0)
@@ -90,6 +90,9 @@ export function tailPoint(note: Note, timeMs: number, width: number, height: num
   const remaining = Math.max(0, (note.timeMs + (note.durationMs || 0) - timeMs) / note.travelTimeMs);
   return trajectoryPoint(note, remaining, width, height);
 }
+export function isNoteVisible(note: VisualNote, timeMs: number): boolean {
+  return note.state!=='done'&&note.timeMs-note.travelTimeMs<=timeMs&&note.timeMs+(note.durationMs||0)+135>=timeMs;
+}
 export function groupNotes(notes: VisualNote[]): NoteGroup[] {
   const groups = new Map<string, NoteGroup>();
   const counts = new Map<number, number>();
@@ -113,12 +116,16 @@ export function shade(hex: string, t: number) {
 const withAlpha = (hex: string, alpha: number) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${alpha})`; };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-function drawStageGrid(c: CanvasRenderingContext2D, width: number, height: number) {
+function drawStageGrid(c: CanvasRenderingContext2D, width: number, height: number, subdivision = 16) {
   const r = stageRect(width, height), inset = stageInset(r);
   const usableW = r.width - inset * 2, usableH = r.height - inset * 2;
   if (usableW <= 0 || usableH <= 0) return;
   const minX = r.x + inset + STAGE_GRID.min * usableW, maxX = r.x + inset + STAGE_GRID.max * usableW;
   const minY = r.y + inset + STAGE_GRID.min * usableH, maxY = r.y + inset + STAGE_GRID.max * usableH;
+  if(subdivision===3||subdivision===6){
+    c.strokeStyle='#5987ad88';c.lineWidth=1;c.setLineDash([3,4]);
+    for(const ratio of new Set(Array.from({length:subdivision*3+1},(_,i)=>defaultLayout('triangle',120,i,subdivision).target.x))){const x=r.x+inset+ratio*usableW,y=r.y+inset+ratio*usableH;c.beginPath();c.moveTo(x,minY);c.lineTo(x,maxY);c.moveTo(minX,y);c.lineTo(maxX,y);c.stroke();}c.setLineDash([]);
+  }
   const lines = Math.round(STAGE_GRID.max / STAGE_GRID.minorStep);
   for (let i = Math.round(STAGE_GRID.min / STAGE_GRID.minorStep); i <= lines; i++) {
     const ratio = i * STAGE_GRID.minorStep, major = i % 2 === 0; // 1/16 line vs 1/32 half line
@@ -374,10 +381,11 @@ function drawNote(c: CanvasRenderingContext2D, p: Point, u: number, color: strin
   c.lineWidth = (symbol === 'cross' ? 2.1 : 1.5) * u;
   c.stroke();
 
+  if(hold){c.font='bold '+Math.round(10*u)+'px sans-serif';c.textAlign='center';c.fillStyle='#fff';c.fillText(dual?'DUAL HOLD':'HOLD',p.x,p.y+31*u);}
   c.restore();
 }
 
-export function drawStage(c: CanvasRenderingContext2D, width: number, height: number, groups: NoteGroup[], timeMs: number, selected?: string, framed = true) {
+export function drawStage(c: CanvasRenderingContext2D, width: number, height: number, groups: NoteGroup[], timeMs: number, selected?: string, framed = true, subdivision = 16) {
   c.clearRect(0, 0, width, height);
   const u = stageScale(width, height), rect = stageRect(width, height);
   c.lineWidth = 1; c.setLineDash([]);
@@ -385,9 +393,9 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
     c.fillStyle = '#0f1a2a'; c.fillRect(0, 0, width, height);
     c.fillStyle = '#142236'; c.fillRect(rect.x, rect.y, rect.width, rect.height);
     c.strokeStyle = '#385575'; c.setLineDash([5, 8]); c.strokeRect(rect.x + 6, rect.y + 6, Math.max(0, rect.width - 12), Math.max(0, rect.height - 12)); c.setLineDash([]);
-    drawStageGrid(c, width, height); // The grid is an editing aid and never appears in gameplay.
+    drawStageGrid(c, width, height, subdivision); // The grid is an editing aid and never appears in gameplay.
   }
-  const visible = groups.filter(group => group.some(n => n.state !== 'done') && group[0].timeMs - group[0].travelTimeMs <= timeMs && group.some(n => n.timeMs + (n.durationMs || 0) + 135 >= timeMs));
+  const visible = groups.filter(group => group.some(n=>isNoteVisible(n,timeMs)));
   const items = visible.map(group => {
     const n = group[0], hold = n.type === 'hold', holding = group.some(item => item.state === 'holding');
     const target = targetPoint(n, width, height), point = notePoint(n, timeMs, width, height);
@@ -412,7 +420,10 @@ export function drawStage(c: CanvasRenderingContext2D, width: number, height: nu
       drawHoldPipe(c, it.n, headRem, it.tailRemaining, width, height, u, it.color, it.holding, it.state.dual);
     }
   }
-  for (const it of items) drawTarget(c, it.target, u, it.color, it.n.symbol, it.state);
+  for (const it of items) {
+    drawTarget(c, it.target, u, it.color, it.n.symbol, it.state);
+    if(it.hold){c.save();c.font='bold '+Math.round(10*u)+'px sans-serif';c.textAlign='center';c.fillStyle='#fff';c.fillText(it.state.dual?'HOLD ×2':'HOLD',it.target.x,it.target.y+35*u);c.restore();}
+  }
   for (const it of items) if (it.hold) drawReleaseMarker(c, it.tail!, u, it.color, it.n.symbol, it.state.dual);
   for (const it of items) {
     if (it.holding) continue;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, EditorDocument, clone, parseChart, snapTime, sortNotes, validatePlayable, type Song } from '../src/domain';
+import { DIFFICULTIES, EditorDocument, gridFromNote, quantizeNote, clone, parseChart, snapTime, sortNotes, validatePlayable, type Song } from '../src/domain';
 import { DEMO_SPECS, buildDemoChart } from '../src/demos';
 import { makeDemoAudio } from '../src/audio';
 import { Gameplay } from '../src/gameplay';
@@ -8,7 +8,7 @@ import { chart, song, tap } from './fixtures';
 describe('portable chart schema', () => {
   it('round-trips Tap, Hold, and explicit matching Dual notes', () => {
     const c = chart([tap(1000),tap(2000,{type:'hold',durationMs:500}),tap(4000,{side:'left',chordId:'duo'}),tap(4000,{side:'right',chordId:'duo'})]);
-    expect(parseChart(JSON.parse(JSON.stringify(c)))).toEqual({...c,notes:sortNotes([...c.notes])});
+    expect(parseChart(JSON.parse(JSON.stringify(c)))).toEqual({...c,notes:sortNotes(c.notes.map(n=>({...n,grid:gridFromNote(n,c)})))});
     expect(validatePlayable(c,song.durationMs).errors).toEqual([]);
   });
   it.each([NaN,Infinity,-1])('rejects invalid note timestamp %s', time => {
@@ -39,10 +39,11 @@ describe('timing and playable patterns', () => {
     expect(snapTime(330,c,8)).toBe(350);
     expect(snapTime(15,c,16)).toBeGreaterThanOrEqual(0);
   });
-  it('does not change note timestamps when BPM or grid offset changes', () => {
+  it('preserves musical beats and projects timestamps when BPM or grid offset changes', () => {
     const doc=new EditorDocument(chart([tap(1375)]));
     doc.apply(c=>{c.timing.bpm=165;c.timing.offsetMs=-120;});
-    expect(doc.chart.notes[0].timeMs).toBe(1375);
+    expect(doc.chart.notes[0].timeMs).toBe(880);
+    expect(doc.chart.notes[0].grid!.startBeat).toBe(2.75);
   });
   it('rejects notes and tails outside audio duration', () => {
     expect(validatePlayable(chart([tap(10000)]),10000).errors.length).toBeGreaterThan(0);

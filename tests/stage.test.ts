@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EditorDocument, clone, defaultLayout, parseChart } from '../src/domain';
+import { EditorDocument, gridFromNote, clone, defaultLayout, parseChart } from '../src/domain';
 import { drawStage, entryPoint, groupNotes, notePoint, pointToTarget, stageRect, targetPoint, travelSpan } from '../src/stage';
 import { Gameplay } from '../src/gameplay';
 import { chart, tap } from './fixtures';
@@ -11,7 +11,7 @@ describe('free target schema and migration', () => {
     const input = { ...legacy, notes:[old] };
     const parsed = parseChart(input);
     expect(parsed.schemaVersion).toBe(2);
-    expect(parsed.notes[0]).toEqual({...old,...defaultLayout(old.symbol)});
+    expect(parsed.notes[0]).toEqual({...old,...defaultLayout(old.symbol),grid:gridFromNote(legacy.notes[0],legacy as ReturnType<typeof chart>)});
     expect(parseChart(input)).toEqual(parsed);
     expect(input.notes[0]).not.toHaveProperty('target');
   });
@@ -114,7 +114,7 @@ describe('pause/resume Holds',()=>{
     game.press('old','triangle','left',1000);game.suspendInputs();game.update(2200);
     expect(game.counts.miss).toBe(1);expect(game.complete).toBe(true);
   });
-  it('renders shape targets, clock needles, and Hold pipes across all four symbols without HOLD text labels',()=>{
+  it('renders shape targets, clock needles, and Hold pipes across all four symbols with explicit HOLD text labels',()=>{
     const fillText=vi.fn(), fill=vi.fn(), stroke=vi.fn();
     const gradient={addColorStop:vi.fn()};
     const ctx={
@@ -135,7 +135,7 @@ describe('pause/resume Holds',()=>{
     const game=new Gameplay(chart(notes));
     game.press('p1','triangle','left',1000);
     drawStage(ctx,960,540,groupNotes(game.notes),1050,notes[0].id,true);
-    expect(fillText).not.toHaveBeenCalled();
+    expect(fillText.mock.calls.some(call=>String(call[0]).includes('HOLD'))).toBe(true);
     expect(fill).toHaveBeenCalledWith('evenodd');
     expect(stroke).toHaveBeenCalled();
   });
